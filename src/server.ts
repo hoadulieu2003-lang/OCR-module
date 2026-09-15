@@ -90,6 +90,16 @@ export async function buildApp() {
     return reply.redirect('/docs');
   });
 
+  // Healthcheck aliases cho load balancer / Docker / reverse proxy
+  const healthHandler = async () => ({
+    status: 'healthy',
+    mode: 'GROUND_TRUTH_DETERMINISTIC',
+    timestamp: new Date().toISOString(),
+    version: '3.0.0-ground-truth'
+  });
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
+
   // 4. API Key Authentication Hook (Tùy chọn bảo mật cho các hệ thống bên ngoài)
   app.addHook('preHandler', async (request, reply) => {
     const configuredApiKey = process.env.API_KEY || 'kglvs-secret-key-2026';
@@ -97,7 +107,7 @@ export async function buildApp() {
 
     // Bỏ qua kiểm tra auth đối với trang chủ, tài liệu /docs, healthcheck và file mẫu
     const cleanUrl = request.url.split('?')[0];
-    const publicPaths = ['/', '/docs', '/docs/', '/api/v1/health', '/api/v1/reports/samples'];
+    const publicPaths = ['/', '/docs', '/docs/', '/health', '/api/health', '/api/v1/health', '/api/v1/reports/samples'];
     if (publicPaths.includes(request.routeOptions.url || cleanUrl) || cleanUrl.startsWith('/docs')) {
       return;
     }
@@ -126,17 +136,25 @@ export async function buildApp() {
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  const PORT = parseInt(process.env.PORT || '3001', 10);
+  const DEFAULT_PORT = parseInt(process.env.PORT || '3001', 10);
   const HOST = process.env.HOST || '0.0.0.0';
 
   buildApp().then(app => {
-    app.listen({ port: PORT, host: HOST }, (err, address) => {
-      if (err) {
-        app.log.error(err);
-        process.exit(1);
-      }
-      app.log.info(`🚀 KGLVS Report OCR Engine is running on ${address}`);
-      app.log.info(`📖 Interactive Swagger Documentation: ${address}/docs`);
-    });
+    const startServer = (port: number) => {
+      app.listen({ port, host: HOST }, (err, address) => {
+        if (err) {
+          if ((err as any).code === 'EADDRINUSE' && port < DEFAULT_PORT + 10) {
+            app.log.warn(`⚠️ Cổng ${port} đang bận, tự động chuyển sang cổng ${port + 1}...`);
+            startServer(port + 1);
+            return;
+          }
+          app.log.error(err);
+          process.exit(1);
+        }
+        app.log.info(`🚀 KGLVS Report OCR Engine is running on ${address}`);
+        app.log.info(`📖 Interactive Swagger Documentation: ${address}/docs`);
+      });
+    };
+    startServer(DEFAULT_PORT);
   });
 }
