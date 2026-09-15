@@ -39,7 +39,7 @@
   - *Giai đoạn 4 (Priority Ranking & Normalization):* Phân cấp mức độ ưu tiên, chuẩn hóa số liệu và trích dẫn gốc.
   - *Giai đoạn 5 (Warehouse Storage & Multi-Format Exporter):* Đồng bộ kho dữ liệu và xuất Word/PDF/CSV/JSON.
 * **Giao diện API RESTful:** 19 Endpoints + Swagger OpenAPI 3.0 tại `http://localhost:3001/docs`.
-* **Kiểm thử Doanh nghiệp:** 18/18 Test Suites (62 tests) đạt 100% GREEN.
+* **Kiểm thử Doanh nghiệp:** 18/18 Test Suites (63 tests) đạt 100% GREEN.
 
 ---
 
@@ -82,7 +82,7 @@ Kích đúp chuột vào file **`start_server.bat`** $\rightarrow$ Hệ thống 
 # 1. Cài đặt thư viện
 npm install
 
-# 2. Chạy toàn bộ 18 Test Suites (62 tests)
+# 2. Chạy toàn bộ 18 Test Suites (63 tests)
 npm test
 
 # 3. Biên dịch mã nguồn (Clean build)

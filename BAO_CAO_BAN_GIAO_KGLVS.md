@@ -5,7 +5,7 @@
 > **Module:** Phân hệ 2 — Trạm Nạp & Xuất Chuẩn Dữ Liệu Gốc Báo Cáo Hành Chính (Deterministic Ground-Truth Extraction Engine)  
 > **Trạng thái:** Sẵn sàng nghiệm thu & Đưa vào vận hành (Production Ready)  
 > **Thư mục source code:** `C:\Users\game\Documents\app\kglvs-report-ocr-engine`  
-> **Kiểm thử chất lượng:** 18/18 Test Suites, 62/62 Tests đạt 100% GREEN (Kèm Golden Benchmark 50 văn bản thực tế)  
+> **Kiểm thử chất lượng:** 18/18 Test Suites, 63/63 Tests đạt 100% GREEN (Kèm Golden Benchmark 50 văn bản thực tế)  
 > **Giao tiếp API:** 19 RESTful Endpoints (`/api/v1/*`) + Swagger OpenAPI 3.0 tương tác tại `/docs`
 
 ---
@@ -73,4 +73,4 @@ Hệ thống được thiết kế chuyên biệt phục vụ công tác điều
 
 ## 4. KẾT LUẬN & KIẾN NGHỊ
 
-Hệ thống đã vượt qua **100% bộ 18 Test Suites (62 Tests)** trên các tài liệu hành chính nhà nước thực tế, bảo đảm độ trễ <50ms, bảo mật sandbox chống rò rỉ dữ liệu, và giao diện trực quan hỗ trợ Lãnh đạo đối soát dẫn chứng tức thì. Đề xuất Lãnh đạo phê duyệt nghiệm thu giai đoạn này để tiến hành kết nối API trực tiếp vào Kho Dữ Liệu Trung Tâm và Hệ thống Quản lý Văn bản Điều hành của đơn vị.
+Hệ thống đã vượt qua **100% bộ 18 Test Suites (63 Tests)** trên các tài liệu hành chính nhà nước thực tế, bảo đảm độ trễ <50ms, bảo mật sandbox chống rò rỉ dữ liệu, và giao diện trực quan hỗ trợ Lãnh đạo đối soát dẫn chứng tức thì. Đề xuất Lãnh đạo phê duyệt nghiệm thu giai đoạn này để tiến hành kết nối API trực tiếp vào Kho Dữ Liệu Trung Tâm và Hệ thống Quản lý Văn bản Điều hành của đơn vị.
