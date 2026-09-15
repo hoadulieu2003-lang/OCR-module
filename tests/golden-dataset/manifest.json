@@ -1,0 +1,76 @@
+{
+  "version": "1.0.0",
+  "dataset_name": "KGLVS Administrative Golden Benchmark 50",
+  "created_at": "2026-08-22",
+  "documents": [
+    {
+      "id": "GOLDEN-01",
+      "file_name": "BC_c_ng_t_c_T__ph_p_n_m_2024_Thi_tran_An_Duong.pdf",
+      "domain": "Tư pháp - Hộ tịch",
+      "document_type": "BAO_CAO",
+      "is_periodic": true,
+      "expected_metrics": [
+        { "indicator": "Đăng ký khai sinh", "unit": "trường hợp", "actual": "120" },
+        { "indicator": "Chứng thực bản sao", "unit": "bản", "actual": "3.450" },
+        { "indicator": "Hồ sơ trực tuyến", "unit": "%", "actual": "98.5%" }
+      ],
+      "expected_decision_needed": false,
+      "expected_zero_grouping": true
+    },
+    {
+      "id": "GOLDEN-02",
+      "file_name": "BC_thu_h_i___t_GPMB_c_c_c_ng_tr_nh_tr_ng__i_m_Xa_Tinh_Khe.pdf",
+      "domain": "Giải phóng mặt bằng & Tái định cư",
+      "document_type": "BAO_CAO",
+      "is_periodic": false,
+      "expected_metrics": [
+        { "indicator": "Diện tích thu hồi", "unit": "ha", "actual": "14.5" },
+        { "indicator": "Số hộ dân bị ảnh hưởng", "unit": "hộ", "actual": "85" },
+        { "indicator": "Tỷ lệ bàn giao mặt bằng", "unit": "%", "actual": "92.3%" }
+      ],
+      "expected_decision_needed": true,
+      "expected_zero_grouping": false
+    },
+    {
+      "id": "GOLDEN-03",
+      "file_name": "BC_quy_t_to_n_ng_n_s_ch___a_ph__ng_n_m_2025_Phuong_Kon_Tum.pdf",
+      "domain": "Tài chính - Ngân sách",
+      "document_type": "BAO_CAO",
+      "is_periodic": true,
+      "expected_metrics": [
+        { "indicator": "Thu ngân sách nhà nước", "unit": "triệu đồng", "actual": "15.420" },
+        { "indicator": "Chi ngân sách địa phương", "unit": "triệu đồng", "actual": "14.800" },
+        { "indicator": "Tỷ lệ giải ngân", "unit": "%", "actual": "96.0%" }
+      ],
+      "expected_decision_needed": false,
+      "expected_zero_grouping": false
+    },
+    {
+      "id": "GOLDEN-04",
+      "file_name": "Phoihop_TTKD_GPQT_K__hoach_SXKD_nam_2023.pdf",
+      "domain": "Kinh tế - Kế hoạch",
+      "document_type": "BAO_CAO",
+      "is_periodic": true,
+      "has_diagonal_watermark": true,
+      "expected_metrics": [
+        { "indicator": "Doanh thu kế hoạch", "unit": "tỷ", "actual": "102" },
+        { "indicator": "Số lượng dự án", "unit": "dự án", "actual": "48" }
+      ],
+      "expected_decision_needed": true,
+      "expected_zero_grouping": false
+    },
+    {
+      "id": "GOLDEN-05",
+      "file_name": "sample_report_cchc.docx",
+      "domain": "Cải cách hành chính",
+      "document_type": "BAO_CAO",
+      "is_periodic": true,
+      "expected_metrics": [
+        { "indicator": "Hồ sơ đúng hạn", "unit": "%", "actual": "99.8%" },
+        { "indicator": "Mức độ hài lòng", "unit": "%", "actual": "100%" }
+      ],
+      "expected_decision_needed": false,
+      "expected_zero_grouping": true
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  kglvs-ocr-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kglvs-report-ocr-service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - API_KEY=kglvs-secret-key-2026
+      - ENFORCE_API_KEY=false
+      - LOG_LEVEL=info
+      # Cấu hình AI Gateway nếu sử dụng LLM Cloud:
+      # - AI_GATEWAY_URL=https://api.openai.com/v1
+      # - AI_GATEWAY_KEY=your-api-key
+      # - AI_MODEL=gemini-2.5-flash
+    volumes:
+      - ocr_uploads:/app/uploads
+      - ocr_warehouse:/app/data/warehouse
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ocr_uploads:
+    driver: local
+  ocr_warehouse:
+    driver: local

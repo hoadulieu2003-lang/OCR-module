@@ -1,0 +1,22 @@
+{
+  "record_id": "kglvs-rec-1788750411633-sbbr1",
+  "file_hash_sha256": "f641c4c4144e43a1258af0183edbd492ae51ea0b6f0825f09e5414fca16034b9",
+  "synced_at": "2026-09-07T03:06:51.629Z",
+  "metadata": {
+    "document_title": "Báo cáo Kiểm thử Tích Hợp Sandbox",
+    "issuing_authority": "UBND Thành Phố",
+    "primary_domain": "Tài chính"
+  },
+  "raw_text": null,
+  "report_data": {
+    "metadata": {
+      "document_title": "Báo cáo Kiểm thử Tích Hợp Sandbox",
+      "issuing_authority": "UBND Thành Phố",
+      "primary_domain": "Tài chính"
+    },
+    "level2_details": {
+      "metrics": [],
+      "tables": []
+    }
+  }
+}
