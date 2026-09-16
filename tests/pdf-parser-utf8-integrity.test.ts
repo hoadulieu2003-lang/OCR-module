@@ -25,7 +25,9 @@ describe('PDF Parser UTF-8 Stream Boundary Integrity', () => {
   });
 
   it('should parse 12-03 report PDF with zero replacement characters and perfect Vietnamese accents', async () => {
-    const pdfPath = path.resolve(__dirname, '../uploads/1789531769768_12-03-bao-cao-phat-trien-ktxh-thang-3-quy-i-va-ph-nhiem-vu-t-eba5927d27.pdf');
+    const uploadsDir = path.resolve(__dirname, '../uploads');
+    const files = fs.existsSync(uploadsDir) ? fs.readdirSync(uploadsDir).filter(f => f.includes('12-03-bao-cao')) : [];
+    const pdfPath = files.length > 0 ? path.join(uploadsDir, files[0]) : path.resolve(__dirname, '../uploads/1789539020384_12-03-bao-cao-phat-trien-ktxh-thang-3-quy-i-va-ph-nhiem-vu-t-eba5927d27.pdf');
     if (!fs.existsSync(pdfPath)) {
       return; // Skip if file not present in environment
     }

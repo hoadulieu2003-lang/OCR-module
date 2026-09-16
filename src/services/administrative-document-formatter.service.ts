@@ -320,10 +320,10 @@ export class AdministrativeDocumentFormatterService {
 
       // 1. Phân loại cấu trúc dòng
       const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^(?:PHẦN|Phần|MỤC|Mục)\s+(?:THỨ\s+|thứ\s+)?[A-ZÀ-Ỹa-zà-ỹ\d]+/i.test(line) || /^[A-Z]\.\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
-      const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
+      const isHeading2 = /^\d+(?:\s*\.\s*\d+)*[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
       const isSubNote = /^\([^\)]+\)$/.test(line.trim());
-      const isFootnote = /^(?:\*?\s*(?:Ghi chú|Chú thích|Nguồn|Lưu ý)\s*:|\(\*\)|\(\d+\)\s+|[*†‡]\s*(?:Bảng|Nguồn|Số liệu|Ghi chú))/i.test(line.trim());
+      const isFootnote = /^(?:\*?\s*(?:Ghi chú|Chú thích|Nguồn|Lưu ý)\s*:|\(\*\)|\(\d+\)\s+|\[\d+\]\s*|[*†‡]\s*(?:Bảng|Nguồn|Số liệu|Ghi chú)|^[1-9]\d?\s+[A-ZÀ-Ỹ\p{Lu}])/u.test(line.trim());
 
       // Ghi nhận ghi chú dưới tiêu đề dạng riêng biệt
       if (isSubNote) {
@@ -407,11 +407,12 @@ export class AdministrativeDocumentFormatterService {
         prevElement.type === 'LIST_ITEM' &&
         !isHeading1 &&
         !isHeading2 &&
-        !isListItem
+        !isListItem &&
+        !isFootnote
       ) {
         const prevText = prevElement.text.trim();
         const prevEndsTerminal = /[.;!?]\s*$/.test(prevText);
-        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]”’]|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
 
         if (!prevEndsTerminal || startsLowerOrContinuation) {
           prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
@@ -426,7 +427,8 @@ export class AdministrativeDocumentFormatterService {
         prevElement.type === 'PARAGRAPH' &&
         !isHeading1 &&
         !isHeading2 &&
-        !isListItem
+        !isListItem &&
+        !isFootnote
       ) {
         const prevText = prevElement.text.trim();
 
@@ -435,7 +437,7 @@ export class AdministrativeDocumentFormatterService {
         const isDecimalSplit = /\d+\.\s*$/.test(prevText) && /^\d+/.test(line);
         const prevEndsWithTerminal = /[.:!?]["'”’]?\s*$/.test(prevText) && !isAbbreviationEnd && !isDecimalSplit;
 
-        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]”’]|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
 
         // Nối tiếp nếu dòng trước chưa có dấu câu kết thúc HOẶC dòng này bắt đầu bằng chữ thường / ký tự tiếp diễn
         if (!prevEndsWithTerminal || startsLowerOrContinuation) {
@@ -455,6 +457,26 @@ export class AdministrativeDocumentFormatterService {
         bodyElements.push({ type: 'FOOTNOTE', text: line });
       } else {
         bodyElements.push({ type: 'PARAGRAPH', text: line });
+      }
+    }
+
+    // Tinh chỉnh vị trí Footnote khi gặp Orphan Heading ở cuối trang PDF:
+    // Nếu một Heading (HEADING_1 hoặc HEADING_2) nằm ngay trước các FOOTNOTE mà không có nội dung thân bài đi kèm,
+    // các FOOTNOTE này thực chất là chú thích của trang trước/mục trước bị đẩy xuống chân trang.
+    // Đưa Footnote lên trước Heading để Heading nối liền thân bài của mục đó.
+    for (let i = 0; i < bodyElements.length - 1; i++) {
+      if (bodyElements[i].type === 'HEADING_1' || bodyElements[i].type === 'HEADING_2') {
+        const footnotesToMove: typeof bodyElements = [];
+        let j = i + 1;
+        while (j < bodyElements.length && bodyElements[j].type === 'FOOTNOTE') {
+          footnotesToMove.push(bodyElements[j]);
+          j++;
+        }
+        if (footnotesToMove.length > 0) {
+          bodyElements.splice(i + 1, footnotesToMove.length);
+          bodyElements.splice(i, 0, ...footnotesToMove);
+          i += footnotesToMove.length;
+        }
       }
     }
 
