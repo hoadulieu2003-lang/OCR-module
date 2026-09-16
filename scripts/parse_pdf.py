@@ -119,16 +119,19 @@ def is_valid_administrative_table(df_data, tab_bbox=None) -> bool:
     if cols_cnt < 2 or cols_cnt > 16:
         return False
     
-    # 1. Kiểm tra nếu là Header hành chính (Quốc hiệu / Cơ quan ban hành)
+    # 1. Kiểm tra nếu là Header hành chính (Quốc hiệu / Cơ quan ban hành) - hỗ trợ cả HÒA và HOÀ
     flat_first_row = ' '.join([str(c) for c in df_data[0] if c is not None]).upper()
     flat_all_text = ' '.join([str(c) for row in df_data for c in row if c is not None]).upper()
     
     header_keywords = [
-        'CỘNG HÒA XÃ HỘI', 'ĐỘC LẬP - TỰ DO', 'ĐỘC LẬP – TỰ DO',
+        'CỘNG HÒA XÃ HỘI', 'CỘNG HOÀ XÃ HỘI', 'ĐỘC LẬP - TỰ DO', 'ĐỘC LẬP – TỰ DO', 'ĐỘC LẬP',
         'ỦY BAN NHÂN DÂN', 'UỶ BAN NHÂN DÂN', 'HỘI ĐỒNG NHÂN DÂN', 'SỐ:'
     ]
-    if any(kw in flat_first_row for kw in header_keywords) and rows_cnt <= 3:
-        return False
+    if any(kw in flat_all_text for kw in header_keywords) and rows_cnt <= 4:
+        if ('CỘNG HÒA' in flat_all_text or 'CỘNG HOÀ' in flat_all_text) and ('ĐỘC LẬP' in flat_all_text):
+            return False
+        if any(kw in flat_first_row for kw in header_keywords) and rows_cnt <= 3:
+            return False
     
     # 2. Kiểm tra nếu là Tiêu đề hoặc Đầu mục văn bản bị chia cột
     title_keywords = ['BÁO CÁO', 'PHIẾU TRÌNH', 'TỜ TRÌNH', 'KẾ HOẠCH', 'PHẦN THỨ', 'KÍNH GỬI', 'NƠI NHẬN']
@@ -144,12 +147,26 @@ def is_valid_administrative_table(df_data, tab_bbox=None) -> bool:
             if cell is not None and str(cell).strip():
                 c_str = str(cell).strip()
                 non_empty_cells.append(c_str)
-                # Số liệu định lượng, tỷ lệ, tiền tệ hoặc ký hiệu bảng
-                if re.search(r'\d+', c_str) or c_str in ['-', '—', 'x', 'X', '%']:
+                # Số liệu định lượng đơn lẻ thực thụ (không phải năm 2024 trong câu văn)
+                if re.match(r'^[0-9]+([.,][0-9]+)?%?$', c_str) or c_str in ['-', '—', 'x', 'X']:
                     numeric_cells_count += 1
     
     if len(non_empty_cells) < 4:
         return False
+    
+    # 4. Kiểm tra tỷ trọng bất cân xứng nội dung (Một cột chiếm hầu hết văn bản trong bảng ngắn <= 3 hàng)
+    if rows_cnt <= 3:
+        col_lengths = [sum(len(str(r[c] or '').strip()) for r in df_data if c < len(r)) for c in range(cols_cnt)]
+        total_len = sum(col_lengths)
+        if total_len > 0:
+            max_col_len = max(col_lengths)
+            # Nếu 1 cột chiếm > 75% tổng ký tự và các cột còn lại chỉ chứa dấu câu rác (., -, —, :) hoặc < 15 ký tự
+            if max_col_len / total_len > 0.75 and (total_len - max_col_len) <= 15:
+                return False
+            # Nếu hàng 0 ô 0 dài > 60 ký tự và bắt đầu bằng chữ thường hoặc dấu gạch đầu dòng (đoạn văn bị ngắt)
+            first_cell = str(df_data[0][0] or '').strip()
+            if len(first_cell) > 60 and (re.match(r'^[a-zà-ỹ\-–—]', first_cell) or ';' in first_cell):
+                return False
     
     avg_cell_len = sum(len(c) for c in non_empty_cells) / len(non_empty_cells)
     

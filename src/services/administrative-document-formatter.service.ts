@@ -181,7 +181,7 @@ export class AdministrativeDocumentFormatterService {
                 const checkLine = lines[curIdx];
                 if (
                   /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
-                  /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
+                  /^(?:[A-Z]\.|\bPHẦN\b|[I|V|X]+\.|\d+[\.\)]|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
                   /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine) ||
                   /^\(/.test(checkLine) ||
                   checkLine.length > 250
@@ -319,7 +319,7 @@ export class AdministrativeDocumentFormatterService {
       if (line === title || line === subject || line === recipientsLine || line === submittingUnit) continue;
 
       // 1. Phân loại cấu trúc dòng
-      const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^(?:PHẦN|Phần|MỤC|Mục)\s+(?:THỨ\s+|thứ\s+)?[A-ZÀ-Ỹa-zà-ỹ\d]+/i.test(line);
+      const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^(?:PHẦN|Phần|MỤC|Mục)\s+(?:THỨ\s+|thứ\s+)?[A-ZÀ-Ỹa-zà-ỹ\d]+/i.test(line) || /^[A-Z]\.\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
       const isSubNote = /^\([^\)]+\)$/.test(line.trim());

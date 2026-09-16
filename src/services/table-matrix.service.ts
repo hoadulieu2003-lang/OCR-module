@@ -34,10 +34,17 @@ export class TableMatrixService {
     const flatAllText = [headers.join(' '), ...rows.map((r: string[]) => r.join(' '))].join(' ').toUpperCase();
 
     const headerKeywords = [
-      'CỘNG HÒA XÃ HỘI', 'ĐỘC LẬP - TỰ DO', 'ĐỘC LẬP – TỰ DO',
+      'CỘNG HÒA XÃ HỘI', 'CỘNG HOÀ XÃ HỘI', 'ĐỘC LẬP - TỰ DO', 'ĐỘC LẬP – TỰ DO', 'ĐỘC LẬP',
       'ỦY BAN NHÂN DÂN', 'UỶ BAN NHÂN DÂN', 'HỘI ĐỒNG NHÂN DÂN', 'SỐ:'
     ];
-    if (headerKeywords.some(kw => flatFirstRow.includes(kw)) && rowsCnt <= 3) return false;
+    if (headerKeywords.some(kw => flatAllText.includes(kw)) && rowsCnt <= 4) {
+      if ((flatAllText.includes('CỘNG HÒA') || flatAllText.includes('CỘNG HOÀ')) && flatAllText.includes('ĐỘC LẬP')) {
+        return false;
+      }
+      if (headerKeywords.some(kw => flatFirstRow.includes(kw)) && rowsCnt <= 3) {
+        return false;
+      }
+    }
 
     const titleKeywords = ['BÁO CÁO', 'PHIẾU TRÌNH', 'TỜ TRÌNH', 'KẾ HOẠCH', 'PHẦN THỨ', 'KÍNH GỬI', 'NƠI NHẬN'];
     if (rowsCnt <= 2 && titleKeywords.some(tk => flatAllText.includes(tk))) return false;
@@ -49,11 +56,33 @@ export class TableMatrixService {
       const s = String(c || '').trim();
       if (s) {
         nonEmpties.push(s);
-        if (/\d+/.test(s) || ['-', '—', 'x', 'X', '%'].includes(s)) numericCount++;
+        if (/^[0-9]+([.,][0-9]+)?%?$/.test(s) || ['-', '—', 'x', 'X'].includes(s)) numericCount++;
       }
     }
 
     if (nonEmpties.length < 4) return false;
+
+    // Kiểm tra tỷ trọng bất cân xứng nội dung (Một cột chiếm hầu hết văn bản trong bảng ngắn <= 3 hàng)
+    if (rowsCnt <= 3) {
+      const grid = [headers, ...rows];
+      const colLengths = new Array(colsCnt).fill(0);
+      for (const r of grid) {
+        for (let c = 0; c < colsCnt; c++) {
+          colLengths[c] += String(r[c] || '').trim().length;
+        }
+      }
+      const totalLen = colLengths.reduce((a, b) => a + b, 0);
+      if (totalLen > 0) {
+        const maxColLen = Math.max(...colLengths);
+        if (maxColLen / totalLen > 0.75 && (totalLen - maxColLen) <= 15) {
+          return false;
+        }
+        const firstCell = String(grid[0]?.[0] || '').trim();
+        if (firstCell.length > 60 && (/^[a-zà-ỹ\-–—]/i.test(firstCell) || firstCell.includes(';'))) {
+          return false;
+        }
+      }
+    }
 
     const avgLen = nonEmpties.reduce((sum, c) => sum + c.length, 0) / nonEmpties.length;
     if (avgLen <= 3 && colsCnt >= 4 && rowsCnt <= 2) return false;
