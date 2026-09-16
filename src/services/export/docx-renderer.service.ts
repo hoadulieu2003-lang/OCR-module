@@ -10,7 +10,9 @@ import {
   AlignmentType,
   BorderStyle,
   HeadingLevel,
-  ShadingType
+  ShadingType,
+  Header,
+  PageNumber
 } from 'docx';
 import { ExecutiveReportIR } from '../../schemas/report-ir.schema.js';
 import { AdministrativeDocumentFormatterService } from '../administrative-document-formatter.service.js';
@@ -201,6 +203,21 @@ export class DocxRendererService {
                 size: 24, // 12pt
                 font: 'Times New Roman',
                 color: '333333'
+              })
+            ]
+          }));
+        } else if (el.type === 'FOOTNOTE') {
+          docChildren.push(new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { before: 80, after: 120, line: 260 },
+            indent: { left: 360 }, // 0.63cm thụt lề nhẹ
+            children: [
+              new TextRun({
+                text: ExecutiveTextCleaner.clean(el.text),
+                italics: true,
+                size: 22, // 11pt
+                font: 'Times New Roman',
+                color: '444444' // Màu xám sẫm thanh lịch
               })
             ]
           }));
@@ -426,9 +443,11 @@ export class DocxRendererService {
     docChildren.push(footerTable);
 
     // Khởi tạo Document với lề chuẩn Nghị định 30 (Trái 2.5cm, Phải 2.0cm, Trên 2.0cm, Dưới 2.0cm)
+    // Đánh số trang chuẩn Nghị định 30: Đặt canh giữa lề trên, font Times New Roman 13pt đứng, không hiển thị ở trang thứ nhất
     const doc = new Document({
       sections: [{
         properties: {
+          titlePage: true, // Không hiển thị số trang ở trang thứ nhất theo NĐ 30
           page: {
             margin: {
               top: 1134,    // 2.0 cm
@@ -437,6 +456,25 @@ export class DocxRendererService {
               right: 1134   // 2.0 cm
             }
           }
+        },
+        headers: {
+          default: new Header({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({
+                    children: [PageNumber.CURRENT],
+                    size: 26, // 13pt
+                    font: 'Times New Roman'
+                  })
+                ]
+              })
+            ]
+          }),
+          first: new Header({
+            children: [] // Trang thứ nhất không hiển thị số trang
+          })
         },
         children: docChildren
       }]

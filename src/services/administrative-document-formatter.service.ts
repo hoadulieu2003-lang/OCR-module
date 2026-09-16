@@ -17,7 +17,7 @@ export interface FormattedAdministrativeDoc {
   recipientsLine: string | null;
   submittingUnit: string | null;
   bodyElements: Array<{
-    type: 'HEADING_1' | 'HEADING_2' | 'PARAGRAPH' | 'LIST_ITEM' | 'TABLE_REF' | 'SUB_NOTE';
+    type: 'HEADING_1' | 'HEADING_2' | 'PARAGRAPH' | 'LIST_ITEM' | 'TABLE_REF' | 'SUB_NOTE' | 'FOOTNOTE';
     text: string;
     tableIndex?: number;
   }>;
@@ -323,6 +323,7 @@ export class AdministrativeDocumentFormatterService {
       const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
       const isSubNote = /^\([^\)]+\)$/.test(line.trim());
+      const isFootnote = /^(?:\*?\s*(?:Ghi chú|Chú thích|Nguồn|Lưu ý)\s*:|\(\*\)|\(\d+\)\s+|[*†‡]\s*(?:Bảng|Nguồn|Số liệu|Ghi chú))/i.test(line.trim());
 
       // Ghi nhận ghi chú dưới tiêu đề dạng riêng biệt
       if (isSubNote) {
@@ -330,7 +331,23 @@ export class AdministrativeDocumentFormatterService {
         continue;
       }
 
+      // Ghi nhận chú thích / ghi chú cuối trang hoặc dưới bảng
+      if (isFootnote) {
+        bodyElements.push({ type: 'FOOTNOTE', text: line });
+        continue;
+      }
+
       const prevElement = bodyElements.length > 0 ? bodyElements[bodyElements.length - 1] : null;
+
+      // Xử lý nối tiếp ghi chú FOOTNOTE nhiều dòng
+      if (prevElement && prevElement.type === 'FOOTNOTE') {
+        const prevEndsTerminal = /[.;!?]\s*$/.test(prevElement.text.trim());
+        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+        if (!isHeading1 && !isHeading2 && !isListItem && !isFootnote && !isSubNote && (!prevEndsTerminal || startsLowerOrContinuation)) {
+          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          continue;
+        }
+      }
 
       // Không bao giờ nối tiếp vào SUB_NOTE
       if (prevElement && prevElement.type === 'SUB_NOTE') {
@@ -340,6 +357,8 @@ export class AdministrativeDocumentFormatterService {
           bodyElements.push({ type: 'HEADING_2', text: line });
         } else if (isListItem) {
           bodyElements.push({ type: 'LIST_ITEM', text: line });
+        } else if (isFootnote) {
+          bodyElements.push({ type: 'FOOTNOTE', text: line });
         } else {
           bodyElements.push({ type: 'PARAGRAPH', text: line });
         }
@@ -432,6 +451,8 @@ export class AdministrativeDocumentFormatterService {
         bodyElements.push({ type: 'HEADING_2', text: line });
       } else if (isListItem) {
         bodyElements.push({ type: 'LIST_ITEM', text: line });
+      } else if (isFootnote) {
+        bodyElements.push({ type: 'FOOTNOTE', text: line });
       } else {
         bodyElements.push({ type: 'PARAGRAPH', text: line });
       }

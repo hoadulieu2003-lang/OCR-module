@@ -154,4 +154,25 @@ nghèo chiếm 2,9% cuối năm 2024.
     expect(buffer).toBeDefined();
     expect(buffer.length).toBeGreaterThan(1000);
   });
+
+  it('should correctly classify and stitch footnotes and table notes (FOOTNOTE)', () => {
+    const rawText = `
+BÁO CÁO
+Tình hình kinh tế xã hội
+
+1. Đánh giá số liệu
+Nội dung phân tích số liệu tài chính quý III năm 2026.
+
+Ghi chú: Số liệu ước tính tính đến ngày 30/6/2026 chưa bao gồm
+nguồn vốn đối ứng từ các chương trình mục tiêu quốc gia.
+
+(*) Lưu ý: Các đơn vị cần hoàn thành báo cáo quyết toán trước ngày 15/7.
+`;
+
+    const doc = AdministrativeDocumentFormatterService.parseDocumentStructure(rawText);
+    const footnotes = doc.bodyElements.filter(e => e.type === 'FOOTNOTE');
+    expect(footnotes.length).toBe(2);
+    expect(footnotes[0].text).toContain('Ghi chú: Số liệu ước tính tính đến ngày 30/6/2026 chưa bao gồm nguồn vốn đối ứng từ các chương trình mục tiêu quốc gia.');
+    expect(footnotes[1].text).toContain('(*) Lưu ý: Các đơn vị cần hoàn thành báo cáo quyết toán trước ngày 15/7.');
+  });
 });
