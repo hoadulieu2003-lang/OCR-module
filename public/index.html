@@ -957,9 +957,31 @@
           if (/^(?:BÁO CÁO|PHIẾU TRÌNH|TỜ TRÌNH|QUYẾT ĐỊNH|THÔNG BÁO|KẾ HOẠCH|CÔNG VĂN)\b/i.test(line)) {
             docTitle = line.toUpperCase();
             bodyStartIndex = i + 1;
-            if (i + 1 < lines.length && (/^Về việc\b/i.test(lines[i + 1]) || /^NỘI DUNG\b/i.test(lines[i + 1]))) {
-              docSubject = lines[i + 1];
-              bodyStartIndex = i + 2;
+
+            const hasSub = i + 1 < lines.length && (
+              /^(?:Về việc|V\/v|Kết quả|Kế hoạch|Tình hình|Tổng kết|Sơ kết|Đánh giá|Công tác|Phương hướng|Nội dung|Báo cáo)(?:\s|[:\-,.]|$)/i.test(lines[i + 1]) ||
+              (/^“[^”]+”/.test(lines[i + 1]) && lines[i + 1].length < 160)
+            );
+
+            if (hasSub) {
+              const subParts = [];
+              let curIdx = i + 1;
+              while (curIdx < Math.min(i + 4, lines.length)) {
+                const cl = lines[curIdx];
+                if (
+                  /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(cl) ||
+                  /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(cl) ||
+                  /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(cl)
+                ) break;
+                if (cl.length > 200) break;
+                subParts.push(cl);
+                curIdx++;
+                if (/[.:]\s*$/.test(cl)) break;
+              }
+              if (subParts.length > 0) {
+                docSubject = subParts.join(' ').replace(/\s+/g, ' ').trim();
+                bodyStartIndex = curIdx;
+              }
             }
             break;
           }
@@ -1110,17 +1132,74 @@
         bodyParagraphs.push(line);
       }
 
-      if (bodyParagraphs.length > 0) {
+      // Áp dụng Intelligent Paragraph & Heading Re-Stitching Engine đồng bộ 100% với Word DOCX
+      const stitchedElements = [];
+      for (const line of bodyParagraphs) {
+        const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line);
+        const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
+        const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
+
+        const prev = stitchedElements.length > 0 ? stitchedElements[stitchedElements.length - 1] : null;
+
+        // 1. Nối Heading 1
+        if (prev && prev.type === 'HEADING_1' && !isHeading1 && !isHeading2 && !isListItem) {
+          const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
+          if (!prevEndsTerminal && (line === line.toUpperCase() || /^\p{Ll}/u.test(line))) {
+            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+            continue;
+          }
+        }
+
+        // 2. Nối Heading 2
+        if (prev && prev.type === 'HEADING_2' && !isHeading1 && !isHeading2 && !isListItem) {
+          const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
+          if (!prevEndsTerminal && (/^\p{Ll}/u.test(line) || /^(?:và|về|của|trong|tại|theo|giai đoạn)(?:\s|$)/i.test(line))) {
+            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+            continue;
+          }
+        }
+
+        // 3. Nối List Item
+        if (prev && prev.type === 'LIST_ITEM' && !isHeading1 && !isHeading2 && !isListItem) {
+          const prevEndsTerminal = /[.;!?]\s*$/.test(prev.text);
+          const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+          if (!prevEndsTerminal || startsLowerOrCont) {
+            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+            continue;
+          }
+        }
+
+        // 4. Nối Paragraph
+        if (prev && prev.type === 'PARAGRAPH' && !isHeading1 && !isHeading2 && !isListItem) {
+          const prevText = prev.text.trim();
+          const isAbbr = /(?:TP|Tx|Tt|Ths|Bs|Gs|TS|PGS|K\/g|Đ\/c|Đc|đ\/c|đc|v\.v|v\.v\.|NĐ-CP|QĐ-UBND|BC-UBND|TTr-UBND|CV-UBND|Số|số)\.\s*$/i.test(prevText);
+          const isDec = /\d+\.\s*$/.test(prevText) && /^\d+/.test(line);
+          const prevEndsWithTerminal = /[.:!?]["'”’]?\s*$/.test(prevText) && !isAbbr && !isDec;
+          const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+
+          if (!prevEndsWithTerminal || startsLowerOrCont) {
+            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+            continue;
+          }
+        }
+
+        if (isHeading1) stitchedElements.push({ type: 'HEADING_1', text: line });
+        else if (isHeading2) stitchedElements.push({ type: 'HEADING_2', text: line });
+        else if (isListItem) stitchedElements.push({ type: 'LIST_ITEM', text: line });
+        else stitchedElements.push({ type: 'PARAGRAPH', text: line });
+      }
+
+      if (stitchedElements.length > 0) {
         html += '<div class="space-y-3 pt-2 text-[13.5px] text-justify">';
-        bodyParagraphs.forEach(line => {
-          if (/^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line)) {
-            html += `<h2 class="text-sm font-bold uppercase text-slate-950 pt-2 pb-1 border-b border-slate-100">${escapeHtml(line)}</h2>`;
-          } else if (/^\d+\.\s+[A-ZÀ-Ỹ]/i.test(line)) {
-            html += `<h3 class="text-[13.5px] font-bold text-slate-950 pt-1.5 pl-2">${escapeHtml(line)}</h3>`;
-          } else if (/^[-*•+]\s*/.test(line)) {
-            html += `<div class="pl-6 text-slate-900 leading-[1.7] relative"><span class="absolute left-2 text-slate-400 font-bold">•</span>${escapeHtml(line.replace(/^[-*•+\s]+/, ''))}</div>`;
+        stitchedElements.forEach(el => {
+          if (el.type === 'HEADING_1') {
+            html += `<h2 class="text-sm font-bold uppercase text-slate-950 pt-2 pb-1 border-b border-slate-100">${escapeHtml(el.text)}</h2>`;
+          } else if (el.type === 'HEADING_2') {
+            html += `<h3 class="text-[13.5px] font-bold text-slate-950 pt-1.5 pl-2">${escapeHtml(el.text)}</h3>`;
+          } else if (el.type === 'LIST_ITEM') {
+            html += `<div class="pl-6 text-slate-900 leading-[1.7] relative"><span class="absolute left-2 text-slate-400 font-bold">•</span>${escapeHtml(el.text.replace(/^[-*•+\s]+/, ''))}</div>`;
           } else {
-            html += `<p class="leading-[1.75] text-slate-900 indent-8">${escapeHtml(line)}</p>`;
+            html += `<p class="leading-[1.75] text-slate-900 indent-8">${escapeHtml(el.text)}</p>`;
           }
         });
         html += '</div>';

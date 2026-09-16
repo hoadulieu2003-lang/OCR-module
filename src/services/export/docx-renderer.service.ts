@@ -171,7 +171,8 @@ export class DocxRendererService {
                 text: el.text,
                 bold: true,
                 size: 28, // 14pt
-                font: 'Times New Roman'
+                font: 'Times New Roman',
+                color: '000000'
               })
             ]
           }));
@@ -184,7 +185,8 @@ export class DocxRendererService {
                 text: el.text,
                 bold: true,
                 size: 26,
-                font: 'Times New Roman'
+                font: 'Times New Roman',
+                color: '000000'
               })
             ]
           }));
@@ -197,7 +199,8 @@ export class DocxRendererService {
               new TextRun({
                 text: el.text,
                 size: 26,
-                font: 'Times New Roman'
+                font: 'Times New Roman',
+                color: '000000'
               })
             ]
           }));
@@ -210,7 +213,8 @@ export class DocxRendererService {
               new TextRun({
                 text: ExecutiveTextCleaner.clean(el.text),
                 size: 26, // 13pt
-                font: 'Times New Roman'
+                font: 'Times New Roman',
+                color: '000000'
               })
             ]
           }));

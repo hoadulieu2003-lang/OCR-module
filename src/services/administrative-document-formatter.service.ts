@@ -130,12 +130,37 @@ export class AdministrativeDocumentFormatterService {
         title = line.toUpperCase();
         bodyStartIndex = i + 1;
 
-        // Dòng tiếp theo có thể là Trích yếu hoặc Kính gửi
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1];
-          if (/^Về việc\b/i.test(nextLine) || /^NỘI DUNG\b/i.test(nextLine)) {
-            subject = nextLine;
-            bodyStartIndex = i + 2;
+        // Trích yếu nội dung: chỉ thu thập nếu dòng tiếp theo thực sự là trích yếu (bắt đầu bằng Về việc, Kết quả, Kế hoạch, Tình hình...)
+        const hasSubjectIndicator = i + 1 < lines.length && (
+          /^(?:Về việc|V\/v|Kết quả|Kế hoạch|Tình hình|Tổng kết|Sơ kết|Đánh giá|Công tác|Phương hướng|Nội dung|Báo cáo)(?:\s|[:\-,.]|$)/i.test(lines[i + 1]) ||
+          (/^“[^”]+”/.test(lines[i + 1]) && lines[i + 1].length < 160)
+        );
+
+        if (hasSubjectIndicator) {
+          const subjectParts: string[] = [];
+          let curIdx = i + 1;
+          while (curIdx < Math.min(i + 4, lines.length)) {
+            const checkLine = lines[curIdx];
+            // Dừng ngay nếu gặp đề mục, kính gửi, đơn vị trình, bullet, hoặc các từ mở đầu thân bài
+            if (
+              /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
+              /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
+              /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine)
+            ) {
+              break;
+            }
+            if (checkLine.length > 200) {
+              break;
+            }
+            subjectParts.push(checkLine);
+            curIdx++;
+            if (/[.:]\s*$/.test(checkLine)) {
+              break;
+            }
+          }
+          if (subjectParts.length > 0) {
+            subject = subjectParts.join(' ').replace(/\s+/g, ' ').trim();
+            bodyStartIndex = curIdx;
           }
         }
         break;
@@ -188,7 +213,7 @@ export class AdministrativeDocumentFormatterService {
       }
     }
 
-    // Phân tích các đoạn nội dung thân bài (Body elements)
+    // Phân tích các đoạn nội dung thân bài với Bộ Nối Liền Thông Minh (Intelligent Paragraph & Heading Stitcher)
     for (let i = bodyStartIndex; i < bodyEndIndex; i++) {
       const line = lines[i];
 
@@ -200,14 +225,97 @@ export class AdministrativeDocumentFormatterService {
       if (cleanContent.length <= 2 && !/^\d+\.?$/.test(cleanContent)) continue; // Bỏ qua ký tự dọc cô lập do scan lỗi
 
       // Bỏ qua các dòng lặp lại header/motto
-      if (/^(?:CỘNG HÒA XÃ HỘI|Độc lập - Tự do|UBND|Số:)/i.test(line)) continue;
+      if (/^(?:CỘNG HÒA XÃ HỘI|Độc lập - Tự do|Độc lập – Tự do|UBND|Số:)/i.test(line)) continue;
       if (line === title || line === subject || line === recipientsLine || line === submittingUnit) continue;
 
-      if (/^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line)) {
+      // 1. Phân loại cấu trúc dòng
+      const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line);
+      const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
+      const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
+
+      const prevElement = bodyElements.length > 0 ? bodyElements[bodyElements.length - 1] : null;
+
+      // TRƯỜNG HỢP 1: NỐI VÀO TIÊU ĐỀ LA MÃ (HEADING_1 BỊ NGẮT DÒNG, VÍ DỤ: "I. ... PHONG" + "TRÀO")
+      if (
+        prevElement &&
+        prevElement.type === 'HEADING_1' &&
+        !isHeading1 &&
+        !isHeading2 &&
+        !isListItem
+      ) {
+        const prevText = prevElement.text.trim();
+        const prevEndsTerminal = /[.:!?]\s*$/.test(prevText);
+        if (!prevEndsTerminal && (line === line.toUpperCase() || /^\p{Ll}/u.test(line))) {
+          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          continue;
+        }
+      }
+
+      // TRƯỜNG HỢP 2: NỐI VÀO TIÊU ĐỀ SỐ (HEADING_2 BỊ NGẮT DÒNG)
+      if (
+        prevElement &&
+        prevElement.type === 'HEADING_2' &&
+        !isHeading1 &&
+        !isHeading2 &&
+        !isListItem
+      ) {
+        const prevText = prevElement.text.trim();
+        const prevEndsTerminal = /[.:!?]\s*$/.test(prevText);
+        if (!prevEndsTerminal && (/^\p{Ll}/u.test(line) || /^(?:và|về|của|trong|tại|theo|giai đoạn)\b/i.test(line))) {
+          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          continue;
+        }
+      }
+
+      // TRƯỜNG HỢP 3: NỐI VÀO MỤC DANH SÁCH (LIST_ITEM BỊ NGẮT DÒNG)
+      if (
+        prevElement &&
+        prevElement.type === 'LIST_ITEM' &&
+        !isHeading1 &&
+        !isHeading2 &&
+        !isListItem
+      ) {
+        const prevText = prevElement.text.trim();
+        const prevEndsTerminal = /[.;!?]\s*$/.test(prevText);
+        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+
+        if (!prevEndsTerminal || startsLowerOrContinuation) {
+          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          continue;
+        }
+      }
+
+      // TRƯỜNG HỢP 4: NỐI VÀO ĐOẠN VĂN (PARAGRAPH CONTINUATION)
+      // Giải quyết triệt để lỗi các từ như "cận", "trọng" hoặc câu văn bị cắt rời
+      if (
+        prevElement &&
+        prevElement.type === 'PARAGRAPH' &&
+        !isHeading1 &&
+        !isHeading2 &&
+        !isListItem
+      ) {
+        const prevText = prevElement.text.trim();
+
+        // Kiểm tra từ viết tắt hành chính không được coi là kết thúc đoạn
+        const isAbbreviationEnd = /(?:TP|Tx|Tt|Ths|Bs|Gs|TS|PGS|K\/g|Đ\/c|Đc|đ\/c|đc|v\.v|v\.v\.|NĐ-CP|QĐ-UBND|BC-UBND|TTr-UBND|CV-UBND|Số|số)\.\s*$/i.test(prevText);
+        const isDecimalSplit = /\d+\.\s*$/.test(prevText) && /^\d+/.test(line);
+        const prevEndsWithTerminal = /[.:!?]["'”’]?\s*$/.test(prevText) && !isAbbreviationEnd && !isDecimalSplit;
+
+        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+
+        // Nối tiếp nếu dòng trước chưa có dấu câu kết thúc HOẶC dòng này bắt đầu bằng chữ thường / ký tự tiếp diễn
+        if (!prevEndsWithTerminal || startsLowerOrContinuation) {
+          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          continue;
+        }
+      }
+
+      // NẾU KHÔNG NỐI ĐƯỢC VÀO PHẦN TỬ TRƯỚC: TẠO PHẦN TỬ MỚI
+      if (isHeading1) {
         bodyElements.push({ type: 'HEADING_1', text: line });
-      } else if (/^\d+\.\s+[A-ZÀ-Ỹ]/i.test(line)) {
+      } else if (isHeading2) {
         bodyElements.push({ type: 'HEADING_2', text: line });
-      } else if (/^[-*•+]\s*/.test(line)) {
+      } else if (isListItem) {
         bodyElements.push({ type: 'LIST_ITEM', text: line });
       } else {
         bodyElements.push({ type: 'PARAGRAPH', text: line });
