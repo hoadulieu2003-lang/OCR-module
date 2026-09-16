@@ -20,6 +20,7 @@ export class ExecutiveTextCleaner {
       .replace(/\s+/g, ' ')
       .replace(/\s+([.,;:!?])/g, '$1')
       .replace(/([.,;:!?])\s*\1+/g, '$1')
+      .replace(/\ufffd/g, '')
       .trim();
   }
 }

@@ -39,7 +39,16 @@ def get_ocr_engine():
             _ocr_engine = None
     return _ocr_engine
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+else:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+if hasattr(sys.stdin, 'reconfigure'):
+    sys.stdin.reconfigure(encoding='utf-8')
+
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
 
 def detect_watermark_patterns(doc) -> list:
     """
@@ -522,7 +531,7 @@ if __name__ == '__main__':
     if sys.argv[1] == '--daemon':
         # Bật flush ngay lập tức cho stdout
         if hasattr(sys.stdout, 'reconfigure'):
-            sys.stdout.reconfigure(line_buffering=True)
+            sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
         # Phát tín hiệu sẵn sàng
         sys.stdout.write(json.dumps({"status": "READY"}) + "\n")
         sys.stdout.flush()

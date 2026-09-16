@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { StringDecoder } from 'string_decoder';
 import mammoth from 'mammoth';
 import { CoreTable } from '../schemas/report-ir.schema.js';
 import { DocumentEvidenceIR } from '../schemas/document-evidence.schema.js';
@@ -46,6 +47,7 @@ export class PdfParserService {
   private static daemonProcess: any = null;
   private static daemonReady: boolean = false;
   private static pendingRequests: Map<string, { resolve: (data: any) => void; reject: (err: any) => void; timeout: NodeJS.Timeout }> = new Map();
+  private static stdoutDecoder: StringDecoder = new StringDecoder('utf-8');
   private static stdoutBuffer: string = '';
 
   constructor() {
@@ -220,17 +222,20 @@ export class PdfParserService {
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
       });
 
-      let stdout = '';
-      let stderr = '';
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
 
-      child.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
-      child.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+      child.stdout.on('data', (d: Buffer) => { stdoutChunks.push(d); });
+      child.stderr.on('data', (d: Buffer) => { stderrChunks.push(d); });
 
       child.on('error', (err) => {
         reject(new Error(`Không thể khởi chạy công cụ chuyển đổi Word (.doc): ${err.message}. Vui lòng cài đặt Python và Microsoft Word hoặc LibreOffice.`));
       });
 
       child.on('close', (code) => {
+        const stdout = Buffer.concat(stdoutChunks).toString('utf-8');
+        const stderr = Buffer.concat(stderrChunks).toString('utf-8');
+
         if (code !== 0) {
           try {
             const parsed = JSON.parse(stdout.trim());
@@ -530,7 +535,7 @@ export class PdfParserService {
       });
 
       PdfParserService.daemonProcess.stdout.on('data', (data: Buffer) => {
-        PdfParserService.stdoutBuffer += data.toString('utf-8');
+        PdfParserService.stdoutBuffer += PdfParserService.stdoutDecoder.write(data);
         const lines = PdfParserService.stdoutBuffer.split('\n');
         PdfParserService.stdoutBuffer = lines.pop() || '';
 
@@ -562,11 +567,15 @@ export class PdfParserService {
       PdfParserService.daemonProcess.on('error', () => {
         PdfParserService.daemonReady = false;
         PdfParserService.daemonProcess = null;
+        PdfParserService.stdoutDecoder = new StringDecoder('utf-8');
+        PdfParserService.stdoutBuffer = '';
       });
 
       PdfParserService.daemonProcess.on('close', () => {
         PdfParserService.daemonReady = false;
         PdfParserService.daemonProcess = null;
+        PdfParserService.stdoutDecoder = new StringDecoder('utf-8');
+        PdfParserService.stdoutBuffer = '';
         for (const [, req] of PdfParserService.pendingRequests.entries()) {
           clearTimeout(req.timeout);
           req.reject(new Error('Python Worker Daemon terminated'));
@@ -614,15 +623,15 @@ export class PdfParserService {
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
       });
 
-      let stdoutData = '';
-      let stderrData = '';
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
 
-      pythonProcess.stdout.on('data', (data) => {
-        stdoutData += data.toString('utf-8');
+      pythonProcess.stdout.on('data', (data: Buffer) => {
+        stdoutChunks.push(data);
       });
 
-      pythonProcess.stderr.on('data', (data) => {
-        stderrData += data.toString('utf-8');
+      pythonProcess.stderr.on('data', (data: Buffer) => {
+        stderrChunks.push(data);
       });
 
       pythonProcess.on('error', (err) => {
@@ -630,6 +639,9 @@ export class PdfParserService {
       });
 
       pythonProcess.on('close', (code) => {
+        const stdoutData = Buffer.concat(stdoutChunks).toString('utf-8');
+        const stderrData = Buffer.concat(stderrChunks).toString('utf-8');
+
         if (code !== 0) {
           return reject(new Error(`PDF Parser failed with code ${code}: ${stderrData}`));
         }
