@@ -980,12 +980,20 @@
         }
       } else {
         // Tài liệu dạng Phụ Lục / Biểu Mẫu / Bảng số liệu thống kê
-        docTitle = lines[0] || 'PHỤ LỤC BẢNG SỐ LIỆU';
-        if (lines.length > 1 && (/^(Thời hạn|Từ ngày|Ngày|V\/v|Về việc|Ban hành|Kèm theo)/i.test(lines[1]) || lines[1].length < 120)) {
-          docSubject = lines[1];
-          bodyStartIndex = 2;
+        const firstLine = (lines[0] || '').trim();
+        const isTableHeaderStart = /^(?:stt|tt|#|người ký|đơn vị|thời gian|thời gian ký|ý kiến)\b/i.test(firstLine);
+        if (isTableHeaderStart && pageTables.length > 0) {
+          docTitle = pageTables[0].table_title || meta.document_title || 'BẢNG KÝ DUYỆT & TIẾP NHẬN BÁO CÁO';
+          docSubject = null;
+          bodyStartIndex = 0;
         } else {
-          bodyStartIndex = 1;
+          docTitle = firstLine || 'PHỤ LỤC BẢNG SỐ LIỆU';
+          if (lines.length > 1 && (/^(Thời hạn|Từ ngày|Ngày|V\/v|Về việc|Ban hành|Kèm theo)/i.test(lines[1]) || lines[1].length < 120)) {
+            docSubject = lines[1];
+            bodyStartIndex = 2;
+          } else {
+            bodyStartIndex = 1;
+          }
         }
       }
 
@@ -1009,12 +1017,14 @@
       
       // Xây dựng tập hợp tất cả từ khóa/ô dữ liệu của bảng trên trang này để LOẠI TRỪ khỏi đoạn văn bản
       const tableCellTokens = new Set();
+      const allCellFullTexts = [];
       if (pageTables.length > 0) {
         pageTables.forEach(tbl => {
           (tbl.headers || []).forEach(h => {
             const sh = String(h || '').trim().toLowerCase();
             if (sh) {
               tableCellTokens.add(sh);
+              allCellFullTexts.push(sh);
               sh.split(/\s+/).forEach(w => { if (w.length >= 2) tableCellTokens.add(w); });
             }
           });
@@ -1023,10 +1033,8 @@
               const sc = String(cell || '').trim().toLowerCase();
               if (sc) {
                 tableCellTokens.add(sc);
-                if (sc.length <= 50) {
-                  tableCellTokens.add(sc);
-                  sc.split(/\s+/).forEach(w => { if (w.length >= 2) tableCellTokens.add(w); });
-                }
+                allCellFullTexts.push(sc);
+                sc.split(/\s+/).forEach(w => { if (w.length >= 2) tableCellTokens.add(w); });
               }
             });
           });
@@ -1091,10 +1099,10 @@
           const cleanLower = line.trim().toLowerCase();
           // Bỏ qua nếu chỉ là số hoặc số thứ tự thuần túy
           if (/^[0-9.,%+\-—/]+$/.test(cleanLower)) continue;
-          // Bỏ qua nếu dòng khớp với ô bảng
-          if (tableCellTokens.has(cleanLower)) continue;
+          // Bỏ qua nếu dòng khớp với ô bảng hoặc là một phần của ô bảng
+          if (tableCellTokens.has(cleanLower) || allCellFullTexts.some(cellText => cellText.includes(cleanLower) || (cleanLower.length >= 6 && cellText.length >= 6 && (cellText.includes(cleanLower) || cleanLower.includes(cellText))))) continue;
           // Bỏ qua nếu là từ khóa header bảng
-          if (/^(stt|tên phòng ban|tổng nhiệm vụ|chưa hoàn|đã hoàn|thời hạn|tên công việc|trạng thái|vai trò)/i.test(cleanLower)) continue;
+          if (/^(?:stt|người ký|đơn vị|thời gian|thời gian ký|ý kiến|tên phòng ban|tổng nhiệm vụ|chưa hoàn|đã hoàn|thời hạn|tên công việc|trạng thái|vai trò)\b/i.test(cleanLower)) continue;
           // Bỏ qua nếu độ dài quá ngắn và là từ vụn
           if (cleanLower.length <= 4 && !/^\d+\./.test(cleanLower)) continue;
         }
@@ -1382,6 +1390,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reportData: currentIRData, rawText: rawFullText })
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Lỗi máy chủ (${res.status})`);
+        }
         const blob = await res.blob();
         downloadBlob(blob, `${currentIRData.metadata?.document_title || 'Bao_Cao'}.docx`);
         showToast('Đã xuất văn bản Word (.docx) chuẩn thể thức NĐ 30!', '📄');
@@ -1399,6 +1411,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reportData: currentIRData, rawText: rawFullText })
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || `Lỗi máy chủ (${res.status})`);
+        }
         const blob = await res.blob();
         downloadBlob(blob, `${currentIRData.metadata?.document_title || 'Bao_Cao'}.pdf`);
         showToast('Đã xuất văn bản PDF (.pdf) chuẩn thể thức NĐ 30!', '📑');

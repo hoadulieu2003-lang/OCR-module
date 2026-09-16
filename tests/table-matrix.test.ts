@@ -113,4 +113,17 @@ describe('Sprint 3 / 4: Complex Table Matrix Engine & TableValidator', () => {
     expect(processed.header_tree?.['Năm 2025']).toBeDefined();
     expect(processed.header_tree?.['Năm 2025'].length).toBe(2);
   });
+
+  it('should calculate positive column widths for wide multi-column tables without negative widths', async () => {
+    const { calculateTableColumnWidths } = await import('../src/services/export/text-cleaner.js');
+    const headers = ['THỊ TRƯỜNG', 'VTC', 'M8 VTP 3 IA C', 'MYN', 'NAT', 'STL', 'VTB', 'VTL', 'VTC', 'MOV', 'VTZ'];
+    const rows = [['Số lượng DA', '06', '1 05 g n', '04', '03', '03', '03', '03', '02', '01', '01']];
+    const widths = calculateTableColumnWidths(headers, rows, 9638);
+    expect(widths.length).toBe(11);
+    widths.forEach(w => {
+      expect(w).toBeGreaterThan(0);
+    });
+    expect(widths.reduce((a, b) => a + b, 0)).toBe(9638);
+  });
 });
+

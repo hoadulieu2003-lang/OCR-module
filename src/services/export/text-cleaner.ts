@@ -125,9 +125,13 @@ export function calculateTableColumnWidths(headers: string[], rows: string[][], 
   });
 
   const isSttCol0 = /^(stt|#|số tt|tt)$/i.test((headers[0] || '').trim()) || colLengths[0] <= 4;
-  const minColWidth = totalWidth > 1000 ? 900 : 35;
-  const sttWidth = isSttCol0 ? (totalWidth > 1000 ? 700 : 30) : 0;
+  
+  // Tính minColWidth động theo số lượng cột để tổng minColWidth không bao giờ vượt quá 85% totalWidth
+  const maxAllowableMin = Math.floor((totalWidth * 0.85) / colCount);
+  const baseMin = totalWidth > 1000 ? 500 : 25;
+  const minColWidth = Math.max(totalWidth > 1000 ? 300 : 15, Math.min(baseMin, maxAllowableMin));
 
+  const sttWidth = isSttCol0 ? Math.min(totalWidth > 1000 ? 700 : 30, Math.floor(totalWidth / colCount)) : 0;
   const remainingWidth = isSttCol0 ? totalWidth - sttWidth : totalWidth;
   const remainingLengths = isSttCol0 ? colLengths.slice(1) : colLengths;
   const totalRemainingLen = remainingLengths.reduce((a, b) => a + b, 0) || 1;
@@ -139,18 +143,36 @@ export function calculateTableColumnWidths(headers: string[], rows: string[][], 
 
   remainingLengths.forEach((len) => {
     const rawW = Math.round((len / totalRemainingLen) * remainingWidth);
-    const clampedW = Math.max(minColWidth, rawW);
-    result.push(clampedW);
+    result.push(Math.max(minColWidth, rawW));
   });
 
-  const currentSum = result.reduce((a, b) => a + b, 0);
-  const diff = totalWidth - currentSum;
-  if (result.length > (isSttCol0 ? 1 : 0)) {
-    let maxIdx = isSttCol0 ? 1 : 0;
-    for (let i = maxIdx; i < result.length; i++) {
-      if (result[i] > result[maxIdx]) maxIdx = i;
+  let currentSum = result.reduce((a, b) => a + b, 0);
+  if (currentSum !== totalWidth) {
+    if (currentSum > totalWidth) {
+      const scale = totalWidth / currentSum;
+      let scaledSum = 0;
+      for (let i = 0; i < result.length; i++) {
+        result[i] = Math.max(totalWidth > 1000 ? 250 : 10, Math.floor(result[i] * scale));
+        scaledSum += result[i];
+      }
+      let maxIdx = 0;
+      for (let i = 1; i < result.length; i++) {
+        if (result[i] > result[maxIdx]) maxIdx = i;
+      }
+      result[maxIdx] += (totalWidth - scaledSum);
+    } else {
+      let maxIdx = isSttCol0 ? 1 : 0;
+      for (let i = maxIdx; i < result.length; i++) {
+        if (result[i] > result[maxIdx]) maxIdx = i;
+      }
+      result[maxIdx] += (totalWidth - currentSum);
     }
-    result[maxIdx] += diff;
+  }
+
+  for (let i = 0; i < result.length; i++) {
+    if (result[i] <= 0 || isNaN(result[i])) {
+      result[i] = Math.max(100, Math.floor(totalWidth / colCount));
+    }
   }
 
   return result;
