@@ -39,6 +39,7 @@ export interface ParsedDocument {
 
 export class PdfParserService {
   private scriptPath: string;
+  private convertDocScriptPath: string;
   private tableMatrixService: TableMatrixService;
 
   // Persistent Python Worker Daemon state (Shared singleton)
@@ -49,17 +50,18 @@ export class PdfParserService {
 
   constructor() {
     this.scriptPath = path.resolve(__dirname, '../../scripts/parse_pdf.py');
+    this.convertDocScriptPath = path.resolve(__dirname, '../../scripts/convert_doc.py');
     this.tableMatrixService = new TableMatrixService();
   }
 
   /**
-   * Phân tích và bóc tách cấu trúc Text, Blocks và Tables từ file PDF hoặc Word (.docx)
+   * Phân tích và bóc tách cấu trúc Text, Blocks và Tables từ file PDF hoặc Word (.docx, .doc)
    */
   async parse(filePath: string): Promise<ParsedDocument> {
     const ext = path.extname(filePath).toLowerCase();
 
     if (ext === '.doc') {
-      throw new Error('Định dạng file Word nhị phân (.doc cũ) không được hỗ trợ. Vui lòng lưu/chuyển đổi file sang định dạng Word mới (.docx) hoặc PDF trước khi tải lên.');
+      return this.parseDoc(filePath);
     }
 
     if (ext === '.docx') {
@@ -172,6 +174,87 @@ export class PdfParserService {
     } catch (err: any) {
       throw new Error(`Lỗi đọc file Word (.docx): ${err.message}`);
     }
+  }
+
+  /**
+   * Tự động chuyển đổi file Word nhị phân (.doc cũ) sang .docx và trích xuất dữ liệu gốc
+   */
+  private async parseDoc(docPath: string): Promise<ParsedDocument> {
+    const tempDocxPath = path.resolve(
+      path.dirname(docPath),
+      `temp_${Date.now()}_${path.basename(docPath, '.doc')}.docx`
+    );
+
+    try {
+      await this.convertDocToDocx(docPath, tempDocxPath);
+      const parsed = await this.parseDocx(tempDocxPath);
+
+      // Bảo toàn định danh và tên file .doc gốc của người dùng
+      parsed.documentId = `doc-${path.basename(docPath)}`;
+      parsed.filePath = docPath;
+      parsed.fileName = path.basename(docPath);
+      if (parsed.evidenceIR) {
+        parsed.evidenceIR.document_id = `doc-${path.basename(docPath)}`;
+        parsed.evidenceIR.file_name = path.basename(docPath);
+      }
+      return parsed;
+    } finally {
+      // Dọn dẹp file .docx tạm
+      try {
+        if (fs.existsSync(tempDocxPath)) {
+          fs.unlinkSync(tempDocxPath);
+        }
+      } catch {
+        // Bỏ qua lỗi dọn dẹp file tạm
+      }
+    }
+  }
+
+  /**
+   * Cầu nối gọi Python chuyển đổi .doc sang .docx qua Word COM / LibreOffice
+   */
+  private async convertDocToDocx(docPath: string, docxPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const pythonCmd = process.env.PYTHON_PATH || 'python';
+      const child = spawn(pythonCmd, [this.convertDocScriptPath, docPath, docxPath], {
+        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
+      child.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+
+      child.on('error', (err) => {
+        reject(new Error(`Không thể khởi chạy công cụ chuyển đổi Word (.doc): ${err.message}. Vui lòng cài đặt Python và Microsoft Word hoặc LibreOffice.`));
+      });
+
+      child.on('close', (code) => {
+        if (code !== 0) {
+          try {
+            const parsed = JSON.parse(stdout.trim());
+            return reject(new Error(parsed.error || stderr || `Chuyển đổi file .doc thất bại với mã lỗi ${code}`));
+          } catch {
+            return reject(new Error(stderr || `Chuyển đổi file .doc thất bại với mã lỗi ${code}`));
+          }
+        }
+
+        try {
+          const parsed = JSON.parse(stdout.trim());
+          if (!parsed.success) {
+            return reject(new Error(parsed.error || 'Chuyển đổi file .doc thất bại'));
+          }
+          resolve();
+        } catch (err: any) {
+          if (fs.existsSync(docxPath) && fs.statSync(docxPath).size > 0) {
+            resolve();
+          } else {
+            reject(new Error(`Kết quả chuyển đổi file .doc không hợp lệ: ${err.message}`));
+          }
+        }
+      });
+    });
   }
 
   /**

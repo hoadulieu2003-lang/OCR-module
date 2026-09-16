@@ -109,12 +109,12 @@
             <span class="text-sky-600 font-mono">1.</span>
             <span>Nạp & Xử Lý Dữ Liệu Gốc Văn Bản</span>
           </h2>
-          <p class="text-xs text-slate-500 mt-0.5">Tải lên file PDF hoặc Word (.docx) để trích xuất nguyên bản text, bảng biểu, layout blocks và metadata</p>
+          <p class="text-xs text-slate-500 mt-0.5">Tải lên file PDF hoặc Word (.docx, .doc) để trích xuất nguyên bản text, bảng biểu, layout blocks và metadata</p>
         </div>
 
         <div class="flex items-center space-x-2 text-xs font-mono text-slate-500">
           <span class="px-2.5 py-1 rounded bg-slate-100 border border-slate-200">🚀 PyMuPDF C-Engine</span>
-          <span class="px-2.5 py-1 rounded bg-slate-100 border border-slate-200">📑 Mammoth DOCX Parser</span>
+          <span class="px-2.5 py-1 rounded bg-slate-100 border border-slate-200">📑 Word (.docx, .doc) Engine</span>
           <span class="px-2.5 py-1 rounded bg-slate-100 border border-slate-200">⚡ Độ trễ &lt; 100ms</span>
         </div>
       </div>
@@ -132,7 +132,7 @@
           </div>
           
           <h3 class="text-base font-extrabold text-slate-900 mb-1">
-            Kéo thả file <span class="text-sky-600">PDF</span> hoặc <span class="text-sky-600">Word (.docx)</span> vào đây, hoặc <span class="text-sky-600 underline">bấm để chọn file</span>
+            Kéo thả file <span class="text-sky-600">PDF</span> hoặc <span class="text-sky-600">Word (.docx, .doc)</span> vào đây, hoặc <span class="text-sky-600 underline">bấm để chọn file</span>
           </h3>
           <p class="text-xs text-slate-500 max-w-lg leading-relaxed mt-1">
             Hỗ trợ toàn bộ thể loại: Báo cáo KTXH, Đầu tư công, CCHC, Ngân sách, Y tế, GPMB, Tiếp dân, Tờ trình (Tối đa 100MB). Trích xuất 100% nguyên bản dữ liệu gốc.
@@ -140,7 +140,7 @@
 
           <div class="mt-6 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-600 font-mono">
             <span class="px-3 py-1 rounded-md bg-white border border-slate-200 text-slate-700 shadow-sm">📄 File PDF</span>
-            <span class="px-3 py-1 rounded-md bg-white border border-slate-200 text-sky-700 shadow-sm font-semibold">📝 File Word (.docx)</span>
+            <span class="px-3 py-1 rounded-md bg-white border border-slate-200 text-sky-700 shadow-sm font-semibold">📝 File Word (.docx, .doc)</span>
             <span class="px-3 py-1 rounded-md bg-white border border-slate-200 shadow-sm">📊 Ma trận Bảng Biểu Gốc</span>
             <span class="px-3 py-1 rounded-md bg-white border border-slate-200 shadow-sm">🏷️ Layout Blocks & Bbox</span>
             <span class="px-3 py-1 rounded-md bg-white border border-slate-200 shadow-sm">💾 Xuất CSV / JSON / DOCX / PDF</span>
@@ -561,12 +561,12 @@
           renderResultWorkspace(currentIRData, currentRawPages, currentTables, json.meta);
           showToast('Nạp dữ liệu gốc thành công!', '🎉');
         } else {
-          alert('Lỗi nạp văn bản: ' + (json.message || json.error || 'Dữ liệu không hợp lệ'));
           resetToUpload();
+          alert('Lỗi nạp văn bản: ' + (json.message || json.error || 'Dữ liệu không hợp lệ'));
         }
       } catch (err) {
-        alert('Lỗi kết nối máy chủ: ' + err.message);
         resetToUpload();
+        alert('Lỗi kết nối máy chủ: ' + err.message);
       }
     }
 
@@ -615,12 +615,12 @@
           renderResultWorkspace(currentIRData, currentRawPages, currentTables, json.meta);
           showToast('Nạp dữ liệu gốc thành công!', '🎉');
         } else {
-          alert('Lỗi nạp văn bản: ' + (json.message || json.error));
           resetToUpload();
+          alert('Lỗi nạp văn bản: ' + (json.message || json.error));
         }
       } catch (err) {
-        alert('Lỗi kết nối: ' + err.message);
         resetToUpload();
+        alert('Lỗi kết nối: ' + err.message);
       }
     }
 

@@ -58,4 +58,15 @@ describe('Word Document (.docx) Support & 5-Layer AI Pipeline', () => {
       }
     }
   });
+
+  it('should parse legacy Word binary (.doc) file and extract ground-truth content', async () => {
+    const sampleDocPath = path.resolve(__dirname, '../dataset-50-real-reports/22_Hoptac_TTr_Chu_truong_tham_gia_thau_du_an_Tiem_chu.doc');
+    const doc = await parser.parse(sampleDocPath);
+
+    expect(doc).toBeDefined();
+    expect(doc.fileName).toBe('22_Hoptac_TTr_Chu_truong_tham_gia_thau_du_an_Tiem_chu.doc');
+    expect(doc.totalPages).toBeGreaterThanOrEqual(1);
+    expect(doc.totalChars).toBeGreaterThan(100);
+    expect(doc.pages[0].text.length).toBeGreaterThan(50);
+  });
 });

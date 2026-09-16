@@ -90,13 +90,13 @@ export const reportOcrRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     validatorCompiler: () => () => true,
     schema: {
       tags: ['Reports Ingestion'],
-      summary: 'Nạp và Bóc Tách Dữ Liệu Gốc Báo Cáo PDF / Word (.docx)',
-      description: 'Nhận file PDF hoặc Word (.docx), trích xuất nguyên bản toàn bộ text, phân đoạn layout blocks, tọa độ bbox và ma trận bảng biểu.'
+      summary: 'Nạp và Bóc Tách Dữ Liệu Gốc Báo Cáo PDF / Word (.docx, .doc)',
+      description: 'Nhận file PDF hoặc Word (.docx, .doc), trích xuất nguyên bản toàn bộ text, phân đoạn layout blocks, tọa độ bbox và ma trận bảng biểu.'
     }
   }, async (request, reply) => {
     const data = await request.file();
     if (!data) {
-      return reply.status(400).send({ success: false, error: 'NO_FILE_UPLOADED', message: 'Vui lòng chọn file PDF hoặc Word (.docx) để tải lên.' });
+      return reply.status(400).send({ success: false, error: 'NO_FILE_UPLOADED', message: 'Vui lòng chọn file PDF hoặc Word (.docx, .doc) để tải lên.' });
     }
 
     const filename = `${Date.now()}_${data.filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
@@ -169,7 +169,7 @@ export const reportOcrRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
 
     const sampleDir = candidateDirs[0];
     const files = fs.readdirSync(sampleDir)
-      .filter(f => f.toLowerCase().endsWith('.pdf') || f.toLowerCase().endsWith('.docx'))
+      .filter(f => f.toLowerCase().endsWith('.pdf') || f.toLowerCase().endsWith('.docx') || f.toLowerCase().endsWith('.doc'))
       .map((f, idx) => ({
         id: `sample-${idx + 1}`,
         name: f,
@@ -185,7 +185,7 @@ export const reportOcrRoutes: FastifyPluginAsync = async (fastify: FastifyInstan
     schema: {
       tags: ['Reports Ingestion'],
       summary: 'Nạp và bóc tách dữ liệu gốc theo đường dẫn file trên Server',
-      description: 'Nhận đường dẫn tuyệt đối của file PDF hoặc Word (.docx) trên máy chủ để nạp trực tiếp'
+      description: 'Nhận đường dẫn tuyệt đối của file PDF hoặc Word (.docx, .doc) trên máy chủ để nạp trực tiếp'
     }
   }, async (request, reply) => {
     const parseResult = ExtractRequestSchema.safeParse(request.body);
