@@ -107,7 +107,7 @@ export class PdfRendererService {
           doc.moveDown(0.6);
         }
 
-        if (struct.recipientsLine) {
+        if (struct.recipientsLine && !/^BÁO CÁO/i.test(struct.title)) {
           doc.fontSize(11).font('Times-BoldItalic')
              .text(struct.recipientsLine, startX, doc.y, { width: contentWidth, align: 'center' });
           doc.moveDown(0.8);
@@ -131,6 +131,9 @@ export class PdfRendererService {
             } else if (el.type === 'HEADING_2') {
               doc.fontSize(11).font('Times-Bold').text(`   ${el.text}`, { width: contentWidth, align: 'left' });
               doc.moveDown(0.2);
+            } else if (el.type === 'SUB_NOTE') {
+              doc.fontSize(10.5).font('Times-Italic').text(el.text, { width: contentWidth, align: 'center' });
+              doc.moveDown(0.3);
             } else if (el.type === 'LIST_ITEM') {
               doc.fontSize(10.5).font('Times-Regular').text(`    ${el.text}`, { width: contentWidth, align: 'justify', indent: 15 });
               doc.moveDown(0.2);
@@ -205,8 +208,14 @@ export class PdfRendererService {
         });
 
         // Cột phải: Chức vụ & Người ký
-        doc.fontSize(10.5).font('Times-Bold').text(struct.footer.signerTitle || 'CHỦ TỊCH', startX + halfWidth, footerY, { width: halfWidth, align: 'center' });
-        doc.fontSize(9).font('Times-Italic').text('(Ký, đóng dấu)', startX + halfWidth, doc.y, { width: halfWidth, align: 'center' });
+        const signerTitles = (struct.footer.signerTitle || 'CHỦ TỊCH').split('\n').map(t => t.trim()).filter(Boolean);
+        doc.fontSize(10.5).font('Times-Bold');
+        let curSignerY = footerY;
+        signerTitles.forEach(st => {
+          doc.text(st, startX + halfWidth, curSignerY, { width: halfWidth, align: 'center' });
+          curSignerY = doc.y;
+        });
+        doc.fontSize(9).font('Times-Italic').text('(Ký, đóng dấu)', startX + halfWidth, curSignerY, { width: halfWidth, align: 'center' });
         
         doc.moveDown(3.5);
         if (struct.footer.signerName) {

@@ -17,7 +17,7 @@ export interface FormattedAdministrativeDoc {
   recipientsLine: string | null;
   submittingUnit: string | null;
   bodyElements: Array<{
-    type: 'HEADING_1' | 'HEADING_2' | 'PARAGRAPH' | 'LIST_ITEM' | 'TABLE_REF';
+    type: 'HEADING_1' | 'HEADING_2' | 'PARAGRAPH' | 'LIST_ITEM' | 'TABLE_REF' | 'SUB_NOTE';
     text: string;
     tableIndex?: number;
   }>;
@@ -54,7 +54,13 @@ export class AdministrativeDocumentFormatterService {
    */
   static cleanWatermarks(rawText: string): string {
     if (!rawText) return '';
-    const lines = rawText.split('\n');
+    // Xóa bỏ các ký tự ẩn soft-hyphen, zero-width, và chuẩn hóa non-breaking spaces
+    const sanitized = rawText
+      .replace(/\u00ad/g, '')
+      .replace(/[\u200b\ufeff]/g, '')
+      .replace(/\u00a0/g, ' ');
+
+    const lines = sanitized.split('\n');
     const filteredLines = lines.filter(line => {
       const trimmed = line.trim();
       if (!trimmed) return true;
@@ -73,15 +79,28 @@ export class AdministrativeDocumentFormatterService {
    */
   static parseDocumentStructure(fullText: string, metadata?: any): FormattedAdministrativeDoc {
     const cleaned = this.cleanWatermarks(fullText);
-    const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const rawLines = cleaned.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    // Lọc bỏ các dòng bảng thô hoặc tiêu đề bảng thừa trong thân bài (tránh lặp dữ liệu)
+    const lines = rawLines.filter(line => {
+      if (/^\[Bảng:\s*[^\]]+\]/i.test(line)) return false;
+      if (line.includes('|') && (line.split('|').length >= 3 || line.startsWith('|') || /[-*•]\s*\|/.test(line))) return false;
+      if (/^TT\s*\|\s*CHỈ TIÊU/i.test(line)) return false;
+      if (/^(?:BIỂU|BẢNG|PHỤ LỤC)\s*[:.]\s*KẾT QUẢ THỰC HIỆN CÁC CHỈ TIÊU/i.test(line)) return false;
+      return true;
+    });
 
     let superiorAgency: string | null = null;
     let issuingAgency = metadata?.issuing_authority || 'ỦY BAN NHÂN DÂN';
-    let docNumber = metadata?.document_number || 'Số: .../BC-UBND';
+    let docNumber = metadata?.document_number ? `Số: ${String(metadata.document_number).replace(/^Số:?\s*/i, '')}` : 'Số: .../BC-UBND';
     let locationAndDate = 'Ngày ... tháng ... năm ...';
     let title = 'BÁO CÁO';
     let subject: string | null = null;
-    let recipientsLine: string | null = metadata?.receiving_authority ? `Kính gửi: ${metadata.receiving_authority}` : null;
+    let recipientsLine: string | null = null;
+    // Chỉ lấy Kính gửi nếu KHÔNG PHẢI BÁO CÁO và metadata có receiving_authority rõ ràng
+    if (metadata?.receiving_authority && !/^(?:BÁO CÁO|Cơ quan cấp trên|Ủy ban nhân dân)/i.test(metadata.receiving_authority) && !/^BÁO CÁO/i.test(metadata?.document_title || '')) {
+      recipientsLine = `Kính gửi: ${metadata.receiving_authority}`;
+    }
     let submittingUnit: string | null = null;
 
     let signerTitle: string | null = metadata?.signer?.title || null;
@@ -118,12 +137,12 @@ export class AdministrativeDocumentFormatterService {
       }
 
       // Số và ký hiệu
-      const numMatch = line.match(/(?:Số|Số:)\s*([0-9a-zA-Z\/\-_.]+)/i);
-      if (numMatch && numMatch[1].length >= 2 && !/^(trong|ngày|tháng|năm)$/i.test(numMatch[1])) {
-        docNumber = line.startsWith('Số') ? line : `Số: ${numMatch[1]}`;
+      const numMatch = line.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\/\-_.]+)/i);
+      if (numMatch && numMatch[1].length >= 2 && !/^(trong|ngày|tháng|năm|li)$/i.test(numMatch[1])) {
+        docNumber = `Số: ${numMatch[1]}`;
       } else if (/^Số\s*:\s*$/i.test(line) && i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
-        if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine)) {
+        if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine) && !/^li$/i.test(nextLine)) {
           docNumber = `Số: ${nextLine}`;
         }
       }
@@ -140,40 +159,63 @@ export class AdministrativeDocumentFormatterService {
         title = line.toUpperCase();
         bodyStartIndex = i + 1;
 
-        // Trích yếu nội dung: chỉ thu thập nếu dòng tiếp theo thực sự là trích yếu (bắt đầu bằng Về việc, Kết quả, Kế hoạch, Tình hình...)
-        const hasSubjectIndicator = i + 1 < lines.length && (
-          /^(?:Về việc|V\/v|Kết quả|Kế hoạch|Tình hình|Tổng kết|Sơ kết|Đánh giá|Công tác|Phương hướng|Nội dung|Báo cáo)(?:\s|[:\-,.]|$)/i.test(lines[i + 1]) ||
-          (/^“[^”]+”/.test(lines[i + 1]) && lines[i + 1].length < 160)
-        );
+        // Trích yếu nội dung: dòng ngay sau hoặc ghép các dòng viết hoa/dấu hai chấm
+        if (i + 1 < lines.length) {
+          const nextLine = lines[i + 1];
+          if (
+            !/^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(nextLine) &&
+            !/^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(nextLine) &&
+            !/^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(nextLine) &&
+            !/^\(/.test(nextLine) &&
+            nextLine.length < 250
+          ) {
+            const isExplicitSubjectStart =
+              (nextLine === nextLine.toUpperCase() && nextLine.length > 5) ||
+              /^(?:Về việc|V\/v)(?:\s|[:\-,.]|$)/i.test(nextLine) ||
+              /^(?:Kết quả|Tình hình|Phương hướng|Kế hoạch|Nhiệm vụ|Sơ kết|Tổng kết|Đánh giá|Báo cáo|Về)(?:\s|[:\-,.]|$)/i.test(nextLine);
 
-        if (hasSubjectIndicator) {
-          const subjectParts: string[] = [];
-          let curIdx = i + 1;
-          while (curIdx < Math.min(i + 4, lines.length)) {
-            const checkLine = lines[curIdx];
-            // Dừng ngay nếu gặp đề mục, kính gửi, đơn vị trình, bullet, hoặc các từ mở đầu thân bài
-            if (
-              /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
-              /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
-              /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine)
-            ) {
-              break;
+            if (isExplicitSubjectStart) {
+              const subjectParts: string[] = [nextLine];
+              let curIdx = i + 2;
+              while (curIdx < Math.min(i + 6, lines.length)) {
+                const checkLine = lines[curIdx];
+                if (
+                  /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
+                  /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
+                  /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine) ||
+                  /^\(/.test(checkLine) ||
+                  checkLine.length > 250
+                ) {
+                  break;
+                }
+                subjectParts.push(checkLine);
+                curIdx++;
+                if (/[.:]\s*$/.test(checkLine)) {
+                  break;
+                }
+              }
+              subject = subjectParts.join(' ').replace(/\s+/g, ' ').trim();
+              bodyStartIndex = curIdx;
             }
-            if (checkLine.length > 200) {
-              break;
-            }
-            subjectParts.push(checkLine);
-            curIdx++;
-            if (/[.:]\s*$/.test(checkLine)) {
-              break;
-            }
-          }
-          if (subjectParts.length > 0) {
-            subject = subjectParts.join(' ').replace(/\s+/g, ' ').trim();
-            bodyStartIndex = curIdx;
           }
         }
         break;
+      }
+    }
+
+    // Tách chuẩn superiorAgency và issuingAgency nếu bị dính hoặc trùng lặp
+    if (superiorAgency && issuingAgency) {
+      if (issuingAgency.includes(superiorAgency)) {
+        const remaining = issuingAgency.replace(superiorAgency, '').replace(/^[\s\-–—:]+/, '').trim();
+        if (remaining) {
+          issuingAgency = remaining;
+        }
+      }
+    } else if (!superiorAgency && issuingAgency) {
+      const matchSplit = issuingAgency.match(/^(ỦY BAN NHÂN DÂN|UỶ BAN NHÂN DÂN|UBND|TẬP ĐOÀN|TỔNG CÔNG TY)\s+(.+)$/i);
+      if (matchSplit) {
+        superiorAgency = matchSplit[1].toUpperCase();
+        issuingAgency = matchSplit[2].toUpperCase();
       }
     }
 
@@ -214,20 +256,33 @@ export class AdministrativeDocumentFormatterService {
       }
     }
 
-    // Quét phần kết thúc (Footer): Nơi nhận & Chữ ký từ cuối lên
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
+    // Quét phần kết thúc (Footer): Nơi nhận & Chữ ký từ cuối lên (quét toàn bộ phần sau bodyStartIndex)
+    for (let i = lines.length - 1; i >= bodyStartIndex; i--) {
       const line = lines[i];
 
       // Chức danh người ký
       if (/^(?:CHỦ TỊCH|Q\.\s*CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TỔNG GIÁM ĐỐC|PHÓ TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|TRƯỞNG CÔNG AN|CHÁNH VĂN PHÒNG|KT\.\s*CHỦ TỊCH|KT\.\s*TỔNG GIÁM ĐỐC|KT\.\s*GIÁM ĐỐC|TM\.\s*ỦY BAN NHÂN DÂN)/i.test(line)) {
-        signerTitle = line.toUpperCase();
-        bodyEndIndex = Math.min(bodyEndIndex, i);
+        if (!signerTitle) {
+          const titleParts: string[] = [line];
+          let k = i + 1;
+          while (k < lines.length && k <= i + 3) {
+            const nextL = lines[k];
+            if (/^(?:PHÓ\s+CHỦ\s+TỊCH|CHỦ\s+TỊCH|PHÓ\s+GIÁM\s+ĐỐC|GIÁM\s+ĐỐC|ỦY\s+VIÊN)/i.test(nextL)) {
+              titleParts.push(nextL);
+              k++;
+            } else {
+              break;
+            }
+          }
+          signerTitle = titleParts.join('\n');
+          bodyEndIndex = Math.min(bodyEndIndex, i);
 
-        // Tên người ký ở dòng sau
-        if (i + 1 < lines.length) {
-          const possibleName = lines[i + 1];
-          if (!/^(?:Nơi nhận|Lưu:)/i.test(possibleName) && possibleName.length < 40) {
-            signerName = possibleName;
+          // Tên người ký ở dòng sau các chức danh
+          if (k < lines.length) {
+            const possibleName = lines[k];
+            if (!/^(?:Nơi nhận|Lưu:|BIỂU|BẢNG|PHỤ LỤC)/i.test(possibleName) && possibleName.length < 40 && possibleName.split(' ').length >= 2 && !/[0-9:.]/.test(possibleName)) {
+              signerName = possibleName;
+            }
           }
         }
       }
@@ -237,9 +292,11 @@ export class AdministrativeDocumentFormatterService {
         bodyEndIndex = Math.min(bodyEndIndex, i);
         for (let j = i + 1; j < lines.length; j++) {
           const recLine = lines[j];
-          const recClean = recLine.replace(/^[-*•+\s]+/, '').trim();
+          const recClean = recLine.replace(/^[-*•+\s]+/, '').replace(/;$/, '').trim();
           if (recClean.length >= 3 && (recLine.startsWith('-') || recLine.startsWith('*') || recLine.startsWith('+') || recLine.toLowerCase().startsWith('lưu:'))) {
-            if (!recipients.includes(recLine)) recipients.push(recLine);
+            if (!recipients.includes(recClean)) recipients.push(recClean);
+          } else if (!/^\s*$/.test(recLine) && !recLine.startsWith('-')) {
+            break;
           }
         }
       }
@@ -262,13 +319,34 @@ export class AdministrativeDocumentFormatterService {
       if (line === title || line === subject || line === recipientsLine || line === submittingUnit) continue;
 
       // 1. Phân loại cấu trúc dòng
-      const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line);
+      const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^(?:PHẦN|Phần|MỤC|Mục)\s+(?:THỨ\s+|thứ\s+)?[A-ZÀ-Ỹa-zà-ỹ\d]+/i.test(line);
       const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
+      const isSubNote = /^\([^\)]+\)$/.test(line.trim());
+
+      // Ghi nhận ghi chú dưới tiêu đề dạng riêng biệt
+      if (isSubNote) {
+        bodyElements.push({ type: 'SUB_NOTE', text: line });
+        continue;
+      }
 
       const prevElement = bodyElements.length > 0 ? bodyElements[bodyElements.length - 1] : null;
 
-      // TRƯỜNG HỢP 1: NỐI VÀO TIÊU ĐỀ LA MÃ (HEADING_1 BỊ NGẮT DÒNG, VÍ DỤ: "I. ... PHONG" + "TRÀO")
+      // Không bao giờ nối tiếp vào SUB_NOTE
+      if (prevElement && prevElement.type === 'SUB_NOTE') {
+        if (isHeading1) {
+          bodyElements.push({ type: 'HEADING_1', text: line });
+        } else if (isHeading2) {
+          bodyElements.push({ type: 'HEADING_2', text: line });
+        } else if (isListItem) {
+          bodyElements.push({ type: 'LIST_ITEM', text: line });
+        } else {
+          bodyElements.push({ type: 'PARAGRAPH', text: line });
+        }
+        continue;
+      }
+
+      // TRƯỜNG HỢP 1: NỐI VÀO TIÊU ĐỀ LA MÃ / PHẦN (HEADING_1 BỊ NGẮT DÒNG, VÍ DỤ: "I. ... PHONG" + "TRÀO")
       if (
         prevElement &&
         prevElement.type === 'HEADING_1' &&
@@ -278,9 +356,13 @@ export class AdministrativeDocumentFormatterService {
       ) {
         const prevText = prevElement.text.trim();
         const prevEndsTerminal = /[.:!?]\s*$/.test(prevText);
-        if (!prevEndsTerminal && (line === line.toUpperCase() || /^\p{Ll}/u.test(line))) {
-          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
-          continue;
+        if (!prevEndsTerminal) {
+          const isSectionOnly = /^(?:PHẦN|Phần|MỤC|Mục)\s+(?:THỨ\s+|thứ\s+)?[A-ZÀ-Ỹa-zà-ỹ\d]+$/i.test(prevText);
+          const sep = isSectionOnly ? ': ' : ' ';
+          if (line === line.toUpperCase() || /^\p{Ll}/u.test(line)) {
+            prevElement.text = `${prevText}${sep}${line}`.replace(/\s+/g, ' ');
+            continue;
+          }
         }
       }
 
@@ -370,9 +452,13 @@ export class AdministrativeDocumentFormatterService {
       submittingUnit,
       bodyElements,
       footer: {
-        recipients: recipients.length > 0 ? recipients : ['- Như trên;', '- Lưu: VT.'],
-        signerTitle: signerTitle || 'CHỦ TỊCH',
-        signerName: signerName || null
+        recipients: recipients.length >= 3
+          ? recipients
+          : (metadata?.recipients && Array.isArray(metadata.recipients) && metadata.recipients.length > 0
+              ? metadata.recipients
+              : (recipients.length > 0 ? recipients : ['- Như trên;', '- Lưu: VT.'])),
+        signerTitle: signerTitle || metadata?.signer?.title || 'CHỦ TỊCH',
+        signerName: signerName || metadata?.signer?.name || null
       },
       cleanText: cleaned
     };

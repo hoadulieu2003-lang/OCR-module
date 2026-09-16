@@ -170,12 +170,27 @@ export class StructuredExtractorService {
     const lastPage = doc.pages[doc.pages.length - 1]?.text || '';
 
     // 1. Metadata định danh văn bản
-    const docNoMatch = p1.match(/(?:Số|Số:)\s*([0-9a-zA-Z\/\-_.]+)/i);
-    const docNo = docNoMatch && docNoMatch[1] && docNoMatch[1].length > 1 ? docNoMatch[1].trim() : null;
+    // Khóa chặt không bắt nhầm "số liệu", "số lượng", "số thứ tự"
+    const docNoMatch = p1.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\/\-_.]+)/i) ||
+                       p1.match(/(?:Số|Số:)\s*(?!liệu\b|lượng\b|thứ\b)([0-9a-zA-Z\/\-_.]+)/i);
+    let docNo = docNoMatch && docNoMatch[1] && docNoMatch[1].length > 1 ? docNoMatch[1].trim() : null;
+    if (docNo && /^li$/i.test(docNo)) docNo = null;
 
-    const authMatch = p1.match(/(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|PHÒNG|SỞ|BỘ|CÔNG\s*AN|BAN|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY)[^\n|]+/i);
-    let issuingAuthority = authMatch ? authMatch[0].trim() : 'ỦY BAN NHÂN DÂN';
-    issuingAuthority = issuingAuthority.replace(/\s+/g, ' ').replace(/[|]/g, '').trim();
+    // Nhận diện cơ quan ban hành và cơ quan trực thuộc (ví dụ UBND XÃ TRẦN PHÚ)
+    let issuingAuthority = 'ỦY BAN NHÂN DÂN';
+    const authMatch = p1.match(/(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|PHÒNG|SỞ|BỘ|CÔNG\s*AN|BAN|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY)[^\n|]*/i);
+    if (authMatch) {
+      let candidate = authMatch[0].trim();
+      const authIdx = p1.indexOf(authMatch[0]);
+      if (authIdx !== -1) {
+        const afterAuth = p1.substring(authIdx + authMatch[0].length).trim();
+        const nextLine = afterAuth.split('\n')[0]?.trim() || '';
+        if (/^(?:XÃ|PHƯỜNG|THỊ\s*TRẤN|HUYỆN|QUẬN|THÀNH\s*PHỐ|TỈNH|CHI\s*NHÁNH|TRUNG\s*TÂM)\s+[^\n|]+/i.test(nextLine)) {
+          candidate = `${candidate} ${nextLine}`;
+        }
+      }
+      issuingAuthority = candidate.replace(/\s+/g, ' ').replace(/[|]/g, '').trim();
+    }
 
     const dateMatch = p1.match(/,\s*ngày\s*(\d{1,2})?\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})/i);
     let issuanceDate: string | null = null;
@@ -186,11 +201,28 @@ export class StructuredExtractorService {
       issuanceDate = `${y}-${m}-${d}`;
     }
 
-    const titleMatch = p1.match(/(?:BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN|CÔNG VĂN)\s*\n*([^\n|]+(?:\n[^\n|]+)?)/i);
-    let reportTitle = titleMatch ? titleMatch[0].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() : 'Báo cáo công tác';
-
-    // Nếu không có tiêu đề BÁO CÁO... nhưng có V/v hoặc Về việc -> Đây là Công văn
-    if (!titleMatch) {
+    // Bóc tách toàn bộ tiêu đề đa dòng (Heading + toàn bộ các dòng phụ đề bổ nghĩa)
+    let reportTitle = 'Báo cáo công tác';
+    const titleRegex = /(?:^|\n)\s*(BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN|CÔNG VĂN)\b/i;
+    const tMatch = p1.match(titleRegex);
+    if (tMatch && tMatch.index !== undefined) {
+      const afterTitle = p1.substring(tMatch.index + tMatch[0].length);
+      const titleLines = afterTitle.split('\n').map(l => l.trim()).filter(Boolean);
+      const subParts: string[] = [tMatch[1].toUpperCase()];
+      for (let i = 0; i < Math.min(5, titleLines.length); i++) {
+        const line = titleLines[i];
+        if (
+          /^(?:\(|Phần|PHẦN|Kính gửi|Đơn vị trình|Căn cứ|Nơi nhận|I\.|1\.|[-*•+]|[a-zđ]\))/i.test(line) ||
+          /^(?:ỦY BAN|UBND|CỘNG HÒA|Số:)/i.test(line)
+        ) {
+          break;
+        }
+        if (line.length > 250) break;
+        subParts.push(line);
+        if (/[.:]\s*$/.test(line)) break;
+      }
+      reportTitle = subParts.join(' ').replace(/\s+/g, ' ').trim();
+    } else {
       const vvMatch = p1.match(/(?:V\/v|Về việc)\s*([^\n|]+(?:\n[^\n|]+)?)/i);
       if (vvMatch) {
         reportTitle = `Công văn: ${vvMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}`;
@@ -198,14 +230,61 @@ export class StructuredExtractorService {
     }
     if (reportTitle.length < 5) reportTitle = 'Báo cáo tình hình thực hiện nhiệm vụ';
 
+    // Tìm trang chứa khối Chữ Ký & Nơi Nhận (quét ngược từ cuối lên)
+    let signaturePageText = lastPage;
+    for (let i = doc.pages.length - 1; i >= 0; i--) {
+      const pageText = doc.pages[i]?.text || '';
+      if (
+        /Nơi nhận\s*:/i.test(pageText) &&
+        (/(?:TM\.|KT\.)/i.test(pageText) || /(?:CHỦ TỊCH|GIÁM ĐỐC|TỔNG GIÁM ĐỐC|THỦ TRƯỞNG|PHÓ CHỦ TỊCH)/i.test(pageText))
+      ) {
+        signaturePageText = pageText;
+        break;
+      }
+    }
+
+    if (!/Nơi nhận\s*:/i.test(signaturePageText)) {
+      for (let i = doc.pages.length - 1; i >= 0; i--) {
+        const pageText = doc.pages[i]?.text || '';
+        if (/Nơi nhận\s*:/i.test(pageText) || /(?:TM\.|KT\.)/i.test(pageText)) {
+          signaturePageText = pageText;
+          break;
+        }
+      }
+    }
+
     // Signer detection (Hỗ trợ cả cơ quan nhà nước và tập đoàn doanh nghiệp)
-    const signerTitleMatch = lastPage.match(/(CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TỔNG GIÁM ĐỐC|PHÓ TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|THỦ TRƯỞNG)/i);
-    const lastLines = lastPage.split('\n').map(l => l.trim()).filter(l => l.length > 2);
     let signerName: string | null = null;
-    if (lastLines.length > 0) {
-      for (let i = lastLines.length - 1; i >= Math.max(0, lastLines.length - 6); i--) {
+    let signerTitle: string | null = null;
+
+    const signerIdx = signaturePageText.search(/(?:^|\n)\s*(?:TM\b|TM\.|KT\b|KT\.|CHỦ TỊCH|GIÁM ĐỐC|TỔNG GIÁM ĐỐC)\b/i);
+    if (signerIdx !== -1) {
+      const chunk = signaturePageText.substring(signerIdx, signerIdx + 450);
+      const lines = chunk.split('\n').map(l => l.trim()).filter(Boolean);
+      const titleParts: string[] = [];
+      for (const line of lines) {
+        if (/^(?:TM\b|TM\.|KT\b|KT\.|CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TRƯỞNG PHÒNG|THỦ TRƯỞNG|UỶ BAN|ỦY BAN|UBND)/i.test(line)) {
+          titleParts.push(line);
+        } else if (line.split(' ').length >= 2 && line.length < 40 && !/[0-9:.]/.test(line) && !/^(?:BIỂU|BẢNG|Phụ lục|Nơi nhận)/i.test(line)) {
+          signerName = line;
+          break;
+        }
+      }
+      if (titleParts.length > 0) {
+        signerTitle = titleParts.join('\n');
+      }
+    }
+
+    if (!signerTitle) {
+      const fallbackTitleMatch = signaturePageText.match(/((?:TM\.\s*)?(?:KT\.\s*)?(?:PHÓ\s+)?(?:CHỦ TỊCH|GIÁM ĐỐC|TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|THỦ TRƯỞNG))/i);
+      if (fallbackTitleMatch) signerTitle = fallbackTitleMatch[0].trim();
+    }
+
+    if (!signerName) {
+      const lastLines = signaturePageText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+      for (let i = lastLines.length - 1; i >= Math.max(0, lastLines.length - 8); i--) {
         const line = lastLines[i];
-        if (!/(nơi nhận|kính gửi|lưu:|chủ tịch|giám đốc|phó|trưởng|ký tên|đã ký|vt)/i.test(line)) {
+        if (!/(nơi nhận|kính gửi|lưu:|chủ tịch|giám đốc|phó|trưởng|ký tên|đã ký|vt|bảng|biểu)/i.test(line)) {
           if (line.split(' ').length >= 2 && line.length < 40 && !/[0-9:.]/.test(line)) {
             signerName = line;
             break;
@@ -217,18 +296,20 @@ export class StructuredExtractorService {
     // Recipients detection
     const recipients: string[] = [];
     let receivingAuthority: string | null = null;
-    const noiNhanBlockMatch = lastPage.match(/Nơi nhận:([\s\S]*?)(?:\n\s*\n|\bTM\.|\bKT\.|\bCHỦ TỊCH|\bGIÁM ĐỐC|$)/i);
-    if (noiNhanBlockMatch) {
-      const rawRecipients = noiNhanBlockMatch[1].split('\n').map(r => r.trim()).filter(r => r.length > 2);
-      for (const r of rawRecipients) {
-        const rClean = r.replace(/^[-*•+0-9.)\s]+/, '').replace(/;$/, '').trim();
-        if (rClean.length > 2 && !rClean.toLowerCase().startsWith('lưu:')) {
-          if (!recipients.includes(rClean)) recipients.push(rClean);
-        } else if (rClean.toLowerCase().startsWith('lưu:')) {
-          if (!recipients.includes(rClean)) recipients.push(rClean);
+    const noiNhanIdx = signaturePageText.indexOf('Nơi nhận:');
+    if (noiNhanIdx !== -1) {
+      const linesAfter = signaturePageText.substring(noiNhanIdx + 9).split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of linesAfter) {
+        if (/^[-*•+0-9.)]/.test(line) || line.endsWith(';')) {
+          const rClean = line.replace(/^[-*•+0-9.)\s]+/, '').replace(/;$/, '').trim();
+          if (rClean.length >= 2 && !recipients.includes(rClean)) {
+            recipients.push(rClean);
+          }
+        } else {
+          break;
         }
       }
-      if (!receivingAuthority && recipients.length > 0) {
+      if (recipients.length > 0) {
         receivingAuthority = recipients.find(r => !r.toLowerCase().startsWith('lưu:')) || recipients[0];
       }
     }
@@ -249,7 +330,7 @@ export class StructuredExtractorService {
       has_appendix: classification.hasAppendix,
       signer: {
         name: signerName,
-        title: signerTitleMatch ? (signerTitleMatch[1] || signerTitleMatch[0]).trim() : null
+        title: signerTitle || null
       },
       purpose: `${issuingAuthority} báo cáo về ${reportTitle} nhằm phục vụ công tác theo dõi, tổng hợp và chỉ đạo điều hành.`
     };

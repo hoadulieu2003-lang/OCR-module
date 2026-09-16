@@ -128,7 +128,7 @@ export class DocxRendererService {
       }));
     }
 
-    if (struct.recipientsLine) {
+    if (struct.recipientsLine && !/^BÁO CÁO/i.test(struct.title)) {
       docChildren.push(new Paragraph({
         alignment: AlignmentType.CENTER,
         spacing: { after: 250 },
@@ -187,6 +187,20 @@ export class DocxRendererService {
                 size: 26,
                 font: 'Times New Roman',
                 color: '000000'
+              })
+            ]
+          }));
+        } else if (el.type === 'SUB_NOTE') {
+          docChildren.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 60, after: 180 },
+            children: [
+              new TextRun({
+                text: el.text,
+                italics: true,
+                size: 24, // 12pt
+                font: 'Times New Roman',
+                color: '333333'
               })
             ]
           }));
@@ -350,16 +364,20 @@ export class DocxRendererService {
       recipientRuns.push(new TextRun({ break: 1 }));
     });
 
-    const signerRuns: TextRun[] = [
-      new TextRun({ text: struct.footer.signerTitle || 'CHỦ TỊCH', bold: true, size: 26, font: 'Times New Roman' }),
-      new TextRun({ break: 1 }),
-      new TextRun({ text: '(Ký, đóng dấu)', italics: true, size: 20, font: 'Times New Roman' }),
-      new TextRun({ break: 1 }),
-      new TextRun({ break: 1 }),
-      new TextRun({ break: 1 }),
-      new TextRun({ break: 1 }),
-      new TextRun({ text: struct.footer.signerName || '', bold: true, size: 26, font: 'Times New Roman' })
-    ];
+    const signerRuns: TextRun[] = [];
+    const signerTitles = (struct.footer.signerTitle || 'CHỦ TỊCH').split('\n').map(t => t.trim()).filter(Boolean);
+    signerTitles.forEach(st => {
+      signerRuns.push(new TextRun({ text: st, bold: true, size: 26, font: 'Times New Roman' }));
+      signerRuns.push(new TextRun({ break: 1 }));
+    });
+    signerRuns.push(new TextRun({ text: '(Ký, đóng dấu)', italics: true, size: 20, font: 'Times New Roman' }));
+    signerRuns.push(new TextRun({ break: 1 }));
+    signerRuns.push(new TextRun({ break: 1 }));
+    signerRuns.push(new TextRun({ break: 1 }));
+    signerRuns.push(new TextRun({ break: 1 }));
+    if (struct.footer.signerName) {
+      signerRuns.push(new TextRun({ text: struct.footer.signerName, bold: true, size: 26, font: 'Times New Roman' }));
+    }
 
     const footerTable = new Table({
       width: { size: 9638, type: WidthType.DXA },

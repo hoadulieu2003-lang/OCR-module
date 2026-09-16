@@ -281,13 +281,54 @@ export class PdfParserService {
           const rowCells: string[] = [];
 
           while ((cellMatch = cellRegex.exec(rowInner)) !== null) {
-            const cleanText = cellMatch[1].replace(/<[^>]+>/g, '').trim();
+            const rawCell = cellMatch[1];
+            // Chuyển đổi thẻ đóng khối và thẻ br thành newline để không bị dính chữ (ví dụ UBND XÃ TRẦN PHÚ)
+            const cleanText = rawCell
+              .replace(/<\/(?:p|div|tr|h[1-6])>/gi, '\n')
+              .replace(/<br\s*\/?>/gi, '\n')
+              .replace(/<[^>]+>/g, '')
+              .split('\n')
+              .map(s => s.trim())
+              .filter(Boolean)
+              .join('\n');
             rowCells.push(cleanText);
           }
 
           if (rowCells.length > 0) {
             allRows.push(rowCells);
           }
+        }
+
+        const fullTableText = allRows.map(r => r.join(' ')).join(' ').toUpperCase();
+        const maxCols = Math.max(...allRows.map(r => r.length), 0);
+        const rowCount = allRows.length;
+
+        // 1. Kiểm tra Bảng Header Thể thức NĐ 30 (2 cột, 1-3 hàng, chứa Quốc hiệu và Cơ quan)
+        const isHeaderTable = maxCols <= 2 && rowCount <= 3 &&
+          (fullTableText.includes('CỘNG HÒA XÃ HỘI') || fullTableText.includes('CỘNG HOÀ XÃ HỘI')) &&
+          (fullTableText.includes('ĐỘC LẬP - TỰ DO') || fullTableText.includes('ĐỘC LẬP'));
+
+        // 2. Kiểm tra Bảng Chữ Ký & Nơi Nhận (1-4 cột, 1-3 hàng, chứa Nơi nhận: và chức danh ký)
+        const isSignatureTable = maxCols <= 4 && rowCount <= 3 &&
+          (fullTableText.includes('NƠI NHẬN:') || fullTableText.includes('NƠI NHẬN')) &&
+          (fullTableText.includes('CHỦ TỊCH') || fullTableText.includes('GIÁM ĐỐC') || fullTableText.includes('TM.') || fullTableText.includes('KT.') || fullTableText.includes('THỦ TRƯỞNG'));
+
+        if (isHeaderTable || isSignatureTable) {
+          // Bảng dàn trang vô hình theo NĐ 30: Chuyển đổi các ô thành các đoạn văn bản chuẩn vào luồng flow
+          for (const row of allRows) {
+            for (const cellText of row) {
+              if (cellText && cellText.trim().length > 0) {
+                const cellLines = cellText.split('\n').map(l => l.trim()).filter(Boolean);
+                for (const line of cellLines) {
+                  flow.push({
+                    type: 'paragraph',
+                    text: line
+                  });
+                }
+              }
+            }
+          }
+          continue;
         }
 
         if (allRows.length >= 2) {
