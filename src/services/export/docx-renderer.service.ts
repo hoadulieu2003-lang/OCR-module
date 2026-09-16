@@ -208,16 +208,17 @@ export class DocxRendererService {
           for (let lIdx = 0; lIdx < fLines.length; lIdx++) {
             let lineText = fLines[lIdx];
             if (lIdx === 0) {
-              // Loại bỏ số hoặc ký hiệu đầu dòng vì Word đã tự động đánh số chú thích dạng chỉ số trên
-              lineText = lineText.replace(/^(\*?\d+|\[\d+\]|\(\*\)|\*)\s*[-–—]?\s*/, '');
+              // Loại bỏ số hoặc ký hiệu đầu dòng vì Word đã tự động đánh số chú thích dạng chỉ số trên, giữ lại gạch đầu dòng bullet nếu có
+              lineText = lineText.replace(/^(\*?\d+|\[\d+\]|\(\*\)|\*)[.:]?\s*/, '');
             }
             fnParagraphs.push(new Paragraph({
               alignment: AlignmentType.JUSTIFIED,
+              indent: { firstLine: 360 }, // Thụt đầu dòng 0.63cm chuẩn Word và bố cục văn bản gốc
               spacing: { before: 0, after: 15, line: 200 },
               children: [
                 new TextRun({
                   text: ExecutiveTextCleaner.clean(lineText),
-                  italics: true,
+                  italics: false, // Chữ đứng bình thường theo đúng bản gốc
                   size: 16, // 8.0pt chuẩn theo văn bản gốc và Nghị định 30/2020/NĐ-CP
                   font: 'Times New Roman',
                   color: '000000'
