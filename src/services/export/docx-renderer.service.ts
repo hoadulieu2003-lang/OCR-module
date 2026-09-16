@@ -55,13 +55,13 @@ export class DocxRendererService {
     ];
 
     const headerTable = new Table({
-      width: { size: 9638, type: WidthType.DXA },
-      columnWidths: [4600, 5038],
+      width: { size: 9145, type: WidthType.DXA },
+      columnWidths: [4250, 4895],
       rows: [
         new TableRow({
           children: [
             new TableCell({
-              width: { size: 4600, type: WidthType.DXA },
+              width: { size: 4250, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
@@ -71,13 +71,13 @@ export class DocxRendererService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  spacing: { line: 260 },
+                  spacing: { line: 240, after: 0 },
                   children: agencyLeftRuns
                 })
               ]
             }),
             new TableCell({
-              width: { size: 5038, type: WidthType.DXA },
+              width: { size: 4895, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
@@ -87,7 +87,7 @@ export class DocxRendererService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  spacing: { line: 260 },
+                  spacing: { line: 240, after: 0 },
                   children: mottoRightRuns
                 })
               ]
@@ -100,12 +100,12 @@ export class DocxRendererService {
     docChildren.push(headerTable);
 
     // Khoảng cách sau tiêu đề đầu trang
-    docChildren.push(new Paragraph({ spacing: { after: 200 } }));
+    docChildren.push(new Paragraph({ spacing: { after: 140 } }));
 
     // --- 2. TÊN LOẠI VĂN BẢN & TRÍCH YẾU NỘI DUNG ---
     docChildren.push(new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { before: 200, after: 100 },
+      spacing: { before: 140, after: 80, line: 240 },
       children: [
         new TextRun({
           text: struct.title || 'BÁO CÁO',
@@ -119,7 +119,7 @@ export class DocxRendererService {
     if (struct.subject) {
       docChildren.push(new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { after: 200 },
+        spacing: { after: 160, line: 240 },
         children: [
           new TextRun({
             text: struct.subject,
@@ -213,14 +213,14 @@ export class DocxRendererService {
             }
             fnParagraphs.push(new Paragraph({
               alignment: AlignmentType.JUSTIFIED,
-              spacing: { before: 20, after: 40, line: 240 },
+              spacing: { before: 0, after: 15, line: 200 },
               children: [
                 new TextRun({
                   text: ExecutiveTextCleaner.clean(lineText),
                   italics: true,
-                  size: 20, // 10pt theo thể thức chuẩn Nghị định 30/2020/NĐ-CP
+                  size: 16, // 8.0pt chuẩn theo văn bản gốc và Nghị định 30/2020/NĐ-CP
                   font: 'Times New Roman',
-                  color: '333333'
+                  color: '000000'
                 })
               ]
             }));
@@ -291,7 +291,7 @@ export class DocxRendererService {
             : [new TextRun({ text: el.text, bold: true, size: 28, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             heading: HeadingLevel.HEADING_1,
-            spacing: { before: 240, after: 120 },
+            spacing: { before: 140, after: 60, line: 250 },
             children: runs
           }));
         } else if (el.type === 'HEADING_2') {
@@ -299,14 +299,14 @@ export class DocxRendererService {
             ? buildRunsWithFootnotes(el.text, assignedFns, 26, true)
             : [new TextRun({ text: el.text, bold: true, size: 26, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
-            spacing: { before: 180, after: 80 },
+            spacing: { before: 100, after: 30, line: 250 },
             indent: { left: 360 }, // 0.63cm
             children: runs
           }));
         } else if (el.type === 'SUB_NOTE') {
           docChildren.push(new Paragraph({
             alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 180 },
+            spacing: { before: 40, after: 100, line: 250 },
             children: [
               new TextRun({
                 text: el.text,
@@ -323,7 +323,7 @@ export class DocxRendererService {
             : [new TextRun({ text: el.text, size: 26, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             alignment: AlignmentType.JUSTIFIED,
-            spacing: { after: 100, line: 300 },
+            spacing: { after: 15, line: 250 },
             indent: { left: 720, hanging: 360 },
             children: runs
           }));
@@ -331,10 +331,12 @@ export class DocxRendererService {
           const runs = assignedFns.length > 0
             ? buildRunsWithFootnotes(el.text, assignedFns, 26)
             : [new TextRun({ text: ExecutiveTextCleaner.clean(el.text), size: 26, font: 'Times New Roman', color: '000000' })];
+          const isConcluding = elIdx === struct.bodyElements.length - 1 || el.text.includes('Trên đây là Báo cáo');
           docChildren.push(new Paragraph({
             alignment: AlignmentType.JUSTIFIED,
-            spacing: { after: 120, line: 300 },
+            spacing: { after: 20, line: 250 },
             indent: { firstLine: 720 }, // 1.27cm
+            keepNext: isConcluding,
             children: runs
           }));
         }
@@ -485,13 +487,14 @@ export class DocxRendererService {
     }
 
     const footerTable = new Table({
-      width: { size: 9638, type: WidthType.DXA },
-      columnWidths: [4600, 5038],
+      width: { size: 9145, type: WidthType.DXA },
+      columnWidths: [4250, 4895],
       rows: [
         new TableRow({
+          cantSplit: true,
           children: [
             new TableCell({
-              width: { size: 4600, type: WidthType.DXA },
+              width: { size: 4250, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
@@ -501,13 +504,13 @@ export class DocxRendererService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.LEFT,
-                  spacing: { line: 240 },
+                  spacing: { line: 240, after: 0 },
                   children: recipientRuns
                 })
               ]
             }),
             new TableCell({
-              width: { size: 5038, type: WidthType.DXA },
+              width: { size: 4895, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
@@ -517,7 +520,7 @@ export class DocxRendererService {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.CENTER,
-                  spacing: { line: 260 },
+                  spacing: { line: 240, after: 0 },
                   children: signerRuns
                 })
               ]
@@ -527,10 +530,10 @@ export class DocxRendererService {
       ]
     });
 
-    docChildren.push(new Paragraph({ spacing: { before: 300 } }));
+    docChildren.push(new Paragraph({ spacing: { before: 200 } }));
     docChildren.push(footerTable);
 
-    // Khởi tạo Document với lề chuẩn Nghị định 30 (Trái 2.5cm, Phải 2.0cm, Trên 2.0cm, Dưới 2.0cm)
+    // Khởi tạo Document với lề chuẩn Nghị định 30 (Trái 3.0cm, Phải 1.87cm, Trên 1.8cm, Dưới 2.0cm khớp nguyên gốc PDF)
     // Đánh số trang chuẩn Nghị định 30: Đặt canh giữa lề trên, font Times New Roman 13pt đứng, không hiển thị ở trang thứ nhất
     // Chú thích chân trang chuẩn Word (Native Word Footnotes): neo trực tiếp tại chân trang của trang tương ứng
     const doc = new Document({
@@ -540,10 +543,10 @@ export class DocxRendererService {
           titlePage: true, // Không hiển thị số trang ở trang thứ nhất theo NĐ 30
           page: {
             margin: {
-              top: 1134,    // 2.0 cm
-              bottom: 1134, // 2.0 cm
-              left: 1417,   // 2.5 cm
-              right: 1134   // 2.0 cm
+              top: 1020,    // 1.80 cm
+              bottom: 1134, // 2.00 cm
+              left: 1701,   // 3.00 cm chuẩn khớp PDF gốc
+              right: 1060   // 1.87 cm chuẩn khớp PDF gốc
             }
           }
         },
