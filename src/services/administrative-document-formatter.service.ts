@@ -309,12 +309,14 @@ export class AdministrativeDocumentFormatterService {
     for (let i = bodyStartIndex; i < bodyEndIndex; i++) {
       const line = lines[i];
 
-      // Bỏ qua dòng trống, dòng đơn ký tự hoặc số trang cô lập
-      if (line.length <= 1) continue;
+      // Bỏ qua dòng số trang hoặc phân cách trang và reset trạng thái Footnote
       if (/^---\s*PAGE\s+\d+\s*---$/i.test(line) || /^\d{1,3}$/.test(line)) {
         isInsideFootnote = false;
         continue;
       }
+
+      // Bỏ qua dòng trống hoặc dòng đơn ký tự (trừ số trang đã xử lý ở trên)
+      if (line.length <= 1) continue;
 
       const cleanContent = line.replace(/^[-*•+\s]+/, '').trim();
       if (cleanContent.length <= 2 && !/^\d+\.?$/.test(cleanContent)) continue; // Bỏ qua ký tự dọc cô lập do scan lỗi

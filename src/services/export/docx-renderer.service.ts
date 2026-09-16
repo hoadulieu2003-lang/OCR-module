@@ -12,7 +12,8 @@ import {
   HeadingLevel,
   ShadingType,
   Header,
-  PageNumber
+  PageNumber,
+  FootnoteReferenceRun
 } from 'docx';
 import { ExecutiveReportIR } from '../../schemas/report-ir.schema.js';
 import { AdministrativeDocumentFormatterService } from '../administrative-document-formatter.service.js';
@@ -162,37 +163,145 @@ export class DocxRendererService {
     }
 
     // --- 3. NỘI DUNG THÂN VĂN BẢN (BODY PARAGRAPHS & SECTIONS) ---
+    // Khởi tạo bộ gom chú thích chân trang chuẩn Word (Native Word Footnotes Container)
+    // Đưa toàn bộ FOOTNOTE về vùng chân trang (Footnote Container w:footnote) thay vì chèn vào giữa trang
+    const docxFootnotes: Record<number, { children: Paragraph[] }> = {};
+    let currentFootnoteId = 0;
+    const targetToFns = new Map<number, Array<{ fnId: number; marker: string }>>();
+
+    if (struct.bodyElements.length > 0) {
+      struct.bodyElements.forEach((el, idx) => {
+        if (el.type === 'FOOTNOTE') {
+          currentFootnoteId++;
+          const fnId = currentFootnoteId;
+          const markerMatch = el.text.match(/^(\*?\d+|\[\d+\]|\(\*\)|\*)/);
+          const marker = markerMatch ? markerMatch[1].replace(/\D/g, '') : '';
+
+          // Tìm phần tử thân bài (HEADING, PARAGRAPH hoặc LIST_ITEM) trước đó chứa ký hiệu dẫn nguồn
+          let targetElIdx = -1;
+          for (let j = idx - 1; j >= Math.max(0, idx - 30); j--) {
+            const cand = struct.bodyElements[j];
+            if (cand.type !== 'FOOTNOTE') {
+              const regex = new RegExp('(?:([\\p{L}\\)]|\\d{4})' + (marker || '\\d') + '|\\s*\\[\\s*' + (marker || '\\d') + '\\s*\\]|\\s*\\(\\s*' + (marker || '\\d') + '\\s*\\))([.,;:]|\\s|$)', 'u');
+              if (regex.test(cand.text)) {
+                targetElIdx = j;
+                break;
+              }
+            }
+          }
+          if (targetElIdx === -1) {
+            for (let j = idx - 1; j >= 0; j--) {
+              if (struct.bodyElements[j].type !== 'FOOTNOTE') {
+                targetElIdx = j;
+                break;
+              }
+            }
+          }
+
+          if (targetElIdx >= 0) {
+            if (!targetToFns.has(targetElIdx)) targetToFns.set(targetElIdx, []);
+            targetToFns.get(targetElIdx)!.push({ fnId, marker });
+          }
+
+          const fLines = el.text.split('\n').map(l => l.trim()).filter(Boolean);
+          const fnParagraphs: Paragraph[] = [];
+          for (let lIdx = 0; lIdx < fLines.length; lIdx++) {
+            let lineText = fLines[lIdx];
+            if (lIdx === 0) {
+              // Loại bỏ số hoặc ký hiệu đầu dòng vì Word đã tự động đánh số chú thích dạng chỉ số trên
+              lineText = lineText.replace(/^(\*?\d+|\[\d+\]|\(\*\)|\*)\s*[-–—]?\s*/, '');
+            }
+            fnParagraphs.push(new Paragraph({
+              alignment: AlignmentType.JUSTIFIED,
+              spacing: { before: 20, after: 40, line: 240 },
+              children: [
+                new TextRun({
+                  text: ExecutiveTextCleaner.clean(lineText),
+                  italics: true,
+                  size: 20, // 10pt theo thể thức chuẩn Nghị định 30/2020/NĐ-CP
+                  font: 'Times New Roman',
+                  color: '333333'
+                })
+              ]
+            }));
+          }
+
+          docxFootnotes[fnId] = {
+            children: fnParagraphs
+          };
+        }
+      });
+    }
+
+    const buildRunsWithFootnotes = (
+      rawText: string,
+      fns: Array<{ fnId: number; marker: string }>,
+      baseSize: number = 26,
+      bold: boolean = false
+    ): (TextRun | FootnoteReferenceRun)[] => {
+      let remainingText = ExecutiveTextCleaner.clean(rawText);
+      const runs: (TextRun | FootnoteReferenceRun)[] = [];
+      const unattached: Array<{ fnId: number; marker: string }> = [];
+
+      for (const fn of fns) {
+        if (!fn.marker) {
+          unattached.push(fn);
+          continue;
+        }
+        const m = fn.marker;
+        const reg = new RegExp('(?:([\\p{L}\\)]|\\d{4})' + m + '|\\s*\\[\\s*' + m + '\\s*\\]|\\s*\\(\\s*' + m + '\\s*\\))([.,;:]|\\s|$)', 'u');
+        const match = remainingText.match(reg);
+        if (match && match.index !== undefined) {
+          const matchStart = match.index;
+          const wordChar = match[1] || '';
+          const punct = match[2];
+          const before = remainingText.slice(0, matchStart) + wordChar;
+          if (before) {
+            runs.push(new TextRun({ text: before, bold, size: baseSize, font: 'Times New Roman', color: '000000' }));
+          }
+          runs.push(new FootnoteReferenceRun(fn.fnId));
+          remainingText = punct + remainingText.slice(matchStart + match[0].length);
+        } else {
+          unattached.push(fn);
+        }
+      }
+
+      if (remainingText) {
+        runs.push(new TextRun({ text: remainingText, bold, size: baseSize, font: 'Times New Roman', color: '000000' }));
+      }
+
+      for (const fn of unattached) {
+        runs.push(new FootnoteReferenceRun(fn.fnId));
+      }
+
+      return runs;
+    };
+
     if (struct.bodyElements.length > 0) {
       for (let elIdx = 0; elIdx < struct.bodyElements.length; elIdx++) {
         const el = struct.bodyElements[elIdx];
-        const prevEl = elIdx > 0 ? struct.bodyElements[elIdx - 1] : null;
-        if (el.type === 'HEADING_1') {
+        const assignedFns = targetToFns.get(elIdx) || [];
+
+        if (el.type === 'FOOTNOTE') {
+          // Bỏ qua không chèn vào body: Word sẽ tự động neo phần chú thích này ở chân trang tương ứng
+          continue;
+        } else if (el.type === 'HEADING_1') {
+          const runs = assignedFns.length > 0
+            ? buildRunsWithFootnotes(el.text, assignedFns, 28, true)
+            : [new TextRun({ text: el.text, bold: true, size: 28, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             heading: HeadingLevel.HEADING_1,
             spacing: { before: 240, after: 120 },
-            children: [
-              new TextRun({
-                text: el.text,
-                bold: true,
-                size: 28, // 14pt
-                font: 'Times New Roman',
-                color: '000000'
-              })
-            ]
+            children: runs
           }));
         } else if (el.type === 'HEADING_2') {
+          const runs = assignedFns.length > 0
+            ? buildRunsWithFootnotes(el.text, assignedFns, 26, true)
+            : [new TextRun({ text: el.text, bold: true, size: 26, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             spacing: { before: 180, after: 80 },
             indent: { left: 360 }, // 0.63cm
-            children: [
-              new TextRun({
-                text: el.text,
-                bold: true,
-                size: 26,
-                font: 'Times New Roman',
-                color: '000000'
-              })
-            ]
+            children: runs
           }));
         } else if (el.type === 'SUB_NOTE') {
           docChildren.push(new Paragraph({
@@ -208,93 +317,25 @@ export class DocxRendererService {
               })
             ]
           }));
-        } else if (el.type === 'FOOTNOTE') {
-          // 1. Đường kẻ gạch ngang phân cách chú thích chân trang (Footnote Separator Line)
-          if (!prevEl || prevEl.type !== 'FOOTNOTE') {
-            docChildren.push(new Paragraph({
-              spacing: { before: 240, after: 80 },
-              indent: { left: 360 },
-              children: [
-                new TextRun({
-                  text: '____________________', // Đường gạch chân phân cách chú thích chuẩn xuất bản
-                  bold: true,
-                  size: 20,
-                  font: 'Times New Roman',
-                  color: '666666'
-                })
-              ]
-            }));
-          }
-
-          // 2. Xử lý các dòng trong cùng một khối FOOTNOTE (có thể gồm nhiều đoạn/gạch đầu dòng)
-          const fLines = el.text.split('\n').map(l => l.trim()).filter(Boolean);
-          for (let lIdx = 0; lIdx < fLines.length; lIdx++) {
-            const fLine = fLines[lIdx];
-            const footnoteMatch = lIdx === 0 ? fLine.match(/^(\*?\d+|\[\d+\]|\(\*\)|\*)\s*(?:[-–—]\s*)?(.*)$/s) : null;
-            const runs: TextRun[] = [];
-
-            if (footnoteMatch) {
-              const marker = footnoteMatch[1];
-              const content = footnoteMatch[2];
-              runs.push(new TextRun({
-                text: marker,
-                superScript: true,
-                bold: true,
-                size: 20, // 10pt
-                font: 'Times New Roman',
-                color: '222222'
-              }));
-              runs.push(new TextRun({
-                text: ' ' + ExecutiveTextCleaner.clean(content),
-                italics: true,
-                size: 21, // 10.5pt
-                font: 'Times New Roman',
-                color: '444444'
-              }));
-            } else {
-              runs.push(new TextRun({
-                text: ExecutiveTextCleaner.clean(fLine),
-                italics: true,
-                size: 21, // 10.5pt
-                font: 'Times New Roman',
-                color: '444444'
-              }));
-            }
-
-            docChildren.push(new Paragraph({
-              alignment: AlignmentType.JUSTIFIED,
-              spacing: { before: 30, after: 60, line: 260 },
-              indent: { left: 360 }, // 0.63cm thụt lề
-              children: runs
-            }));
-          }
         } else if (el.type === 'LIST_ITEM') {
+          const runs = assignedFns.length > 0
+            ? buildRunsWithFootnotes(el.text, assignedFns, 26)
+            : [new TextRun({ text: el.text, size: 26, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             alignment: AlignmentType.JUSTIFIED,
             spacing: { after: 100, line: 300 },
             indent: { left: 720, hanging: 360 },
-            children: [
-              new TextRun({
-                text: el.text,
-                size: 26,
-                font: 'Times New Roman',
-                color: '000000'
-              })
-            ]
+            children: runs
           }));
         } else {
+          const runs = assignedFns.length > 0
+            ? buildRunsWithFootnotes(el.text, assignedFns, 26)
+            : [new TextRun({ text: ExecutiveTextCleaner.clean(el.text), size: 26, font: 'Times New Roman', color: '000000' })];
           docChildren.push(new Paragraph({
             alignment: AlignmentType.JUSTIFIED,
             spacing: { after: 120, line: 300 },
             indent: { firstLine: 720 }, // 1.27cm
-            children: [
-              new TextRun({
-                text: ExecutiveTextCleaner.clean(el.text),
-                size: 26, // 13pt
-                font: 'Times New Roman',
-                color: '000000'
-              })
-            ]
+            children: runs
           }));
         }
       }
@@ -491,7 +532,9 @@ export class DocxRendererService {
 
     // Khởi tạo Document với lề chuẩn Nghị định 30 (Trái 2.5cm, Phải 2.0cm, Trên 2.0cm, Dưới 2.0cm)
     // Đánh số trang chuẩn Nghị định 30: Đặt canh giữa lề trên, font Times New Roman 13pt đứng, không hiển thị ở trang thứ nhất
+    // Chú thích chân trang chuẩn Word (Native Word Footnotes): neo trực tiếp tại chân trang của trang tương ứng
     const doc = new Document({
+      footnotes: Object.keys(docxFootnotes).length > 0 ? docxFootnotes : undefined,
       sections: [{
         properties: {
           titlePage: true, // Không hiển thị số trang ở trang thứ nhất theo NĐ 30
