@@ -302,13 +302,19 @@ export class AdministrativeDocumentFormatterService {
       }
     }
 
+    let isInsideFootnote = false;
+    let lastUnclosedBodyElIndex = -1;
+
     // Phân tích các đoạn nội dung thân bài với Bộ Nối Liền Thông Minh (Intelligent Paragraph & Heading Stitcher)
     for (let i = bodyStartIndex; i < bodyEndIndex; i++) {
       const line = lines[i];
 
       // Bỏ qua dòng trống, dòng đơn ký tự hoặc số trang cô lập
       if (line.length <= 1) continue;
-      if (/^\d{1,3}$/.test(line)) continue; // Số trang
+      if (/^---\s*PAGE\s+\d+\s*---$/i.test(line) || /^\d{1,3}$/.test(line)) {
+        isInsideFootnote = false;
+        continue;
+      }
 
       const cleanContent = line.replace(/^[-*•+\s]+/, '').trim();
       if (cleanContent.length <= 2 && !/^\d+\.?$/.test(cleanContent)) continue; // Bỏ qua ký tự dọc cô lập do scan lỗi
@@ -323,28 +329,52 @@ export class AdministrativeDocumentFormatterService {
       const isHeading2 = /^\d+(?:\s*\.\s*\d+)*[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
       const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
       const isSubNote = /^\([^\)]+\)$/.test(line.trim());
-      const isFootnote = /^(?:\*?\s*(?:Ghi chú|Chú thích|Nguồn|Lưu ý)\s*:|\(\*\)|\(\d+\)\s+|\[\d+\]\s*|[*†‡]\s*(?:Bảng|Nguồn|Số liệu|Ghi chú)|^[1-9]\d?\s+[A-ZÀ-Ỹ\p{Lu}])/u.test(line.trim());
+      const isFootnote = /^(?:\*?\s*(?:Ghi chú|Chú thích|Nguồn|Lưu ý)\s*:|\(\*\)|\(\d+\)\s+|\[\d+\]\s*|[*†‡]\s*(?:Bảng|Nguồn|Số liệu|Ghi chú)|^[1-9]\d?(?:\s*[-–—]\s*|\s+)[A-ZÀ-Ỹ\p{Lu}])/u.test(line.trim());
+
+      if (isHeading1 || isHeading2) {
+        isInsideFootnote = false;
+      }
 
       // Ghi nhận ghi chú dưới tiêu đề dạng riêng biệt
       if (isSubNote) {
         bodyElements.push({ type: 'SUB_NOTE', text: line });
+        isInsideFootnote = false;
         continue;
       }
 
       // Ghi nhận chú thích / ghi chú cuối trang hoặc dưới bảng
       if (isFootnote) {
+        isInsideFootnote = true;
         bodyElements.push({ type: 'FOOTNOTE', text: line });
         continue;
       }
 
       const prevElement = bodyElements.length > 0 ? bodyElements[bodyElements.length - 1] : null;
 
-      // Xử lý nối tiếp ghi chú FOOTNOTE nhiều dòng
-      if (prevElement && prevElement.type === 'FOOTNOTE') {
-        const prevEndsTerminal = /[.;!?]\s*$/.test(prevElement.text.trim());
-        const startsLowerOrContinuation = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
-        if (!isHeading1 && !isHeading2 && !isListItem && !isFootnote && !isSubNote && (!prevEndsTerminal || startsLowerOrContinuation)) {
-          prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+      // Xử lý nối tiếp ghi chú FOOTNOTE nhiều dòng (bao gồm các câu diễn giải tiếp theo và bullet points trong cùng chú thích)
+      if (isInsideFootnote && prevElement && prevElement.type === 'FOOTNOTE') {
+        if (!isHeading1 && !isHeading2) {
+          const prevEndsTerminal = /[.;!?]\s*$/.test(prevElement.text.trim());
+          const isBullet = /^[-*•+]\s*/.test(line);
+          const sep = (isBullet || (prevEndsTerminal && !/^\p{Ll}/u.test(line))) ? '\n' : ' ';
+          prevElement.text = `${prevElement.text}${sep}${line}`.replace(/[ \t]+/g, ' ');
+          continue;
+        } else {
+          isInsideFootnote = false;
+        }
+      }
+
+      // Xử lý nối câu thân bài bị ngắt qua trang bởi khối chú thích chân trang
+      if (!isInsideFootnote && lastUnclosedBodyElIndex >= 0) {
+        const unclosedEl = bodyElements[lastUnclosedBodyElIndex];
+        const startsLower = /^\p{Ll}/u.test(line);
+        const prevEndsTerminal = /[.:!?]["'”’]?\s*$/.test(unclosedEl.text.trim());
+
+        if (startsLower && !prevEndsTerminal && !isHeading1 && !isHeading2 && !isListItem && !isFootnote && !isSubNote) {
+          unclosedEl.text = `${unclosedEl.text} ${line}`.replace(/\s+/g, ' ');
+          if (/[.:!?]["'”’]?\s*$/.test(unclosedEl.text.trim())) {
+            lastUnclosedBodyElIndex = -1;
+          }
           continue;
         }
       }
@@ -416,6 +446,7 @@ export class AdministrativeDocumentFormatterService {
 
         if (!prevEndsTerminal || startsLowerOrContinuation) {
           prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          lastUnclosedBodyElIndex = !/[.;!?]\s*$/.test(prevElement.text.trim()) ? bodyElements.length - 1 : -1;
           continue;
         }
       }
@@ -442,6 +473,7 @@ export class AdministrativeDocumentFormatterService {
         // Nối tiếp nếu dòng trước chưa có dấu câu kết thúc HOẶC dòng này bắt đầu bằng chữ thường / ký tự tiếp diễn
         if (!prevEndsWithTerminal || startsLowerOrContinuation) {
           prevElement.text = `${prevElement.text} ${line}`.replace(/\s+/g, ' ');
+          lastUnclosedBodyElIndex = !/[.:!?]["'”’]?\s*$/.test(prevElement.text.trim()) ? bodyElements.length - 1 : -1;
           continue;
         }
       }
@@ -457,6 +489,10 @@ export class AdministrativeDocumentFormatterService {
         bodyElements.push({ type: 'FOOTNOTE', text: line });
       } else {
         bodyElements.push({ type: 'PARAGRAPH', text: line });
+      }
+
+      if (!isFootnote) {
+        lastUnclosedBodyElIndex = !/[.:!?]["'”’]?\s*$/.test(line.trim()) ? bodyElements.length - 1 : -1;
       }
     }
 

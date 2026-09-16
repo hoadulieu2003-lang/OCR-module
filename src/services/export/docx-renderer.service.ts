@@ -163,7 +163,9 @@ export class DocxRendererService {
 
     // --- 3. NỘI DUNG THÂN VĂN BẢN (BODY PARAGRAPHS & SECTIONS) ---
     if (struct.bodyElements.length > 0) {
-      for (const el of struct.bodyElements) {
+      for (let elIdx = 0; elIdx < struct.bodyElements.length; elIdx++) {
+        const el = struct.bodyElements[elIdx];
+        const prevEl = elIdx > 0 ? struct.bodyElements[elIdx - 1] : null;
         if (el.type === 'HEADING_1') {
           docChildren.push(new Paragraph({
             heading: HeadingLevel.HEADING_1,
@@ -207,20 +209,65 @@ export class DocxRendererService {
             ]
           }));
         } else if (el.type === 'FOOTNOTE') {
-          docChildren.push(new Paragraph({
-            alignment: AlignmentType.JUSTIFIED,
-            spacing: { before: 80, after: 120, line: 260 },
-            indent: { left: 360 }, // 0.63cm thụt lề nhẹ
-            children: [
-              new TextRun({
-                text: ExecutiveTextCleaner.clean(el.text),
-                italics: true,
-                size: 22, // 11pt
+          // 1. Đường kẻ gạch ngang phân cách chú thích chân trang (Footnote Separator Line)
+          if (!prevEl || prevEl.type !== 'FOOTNOTE') {
+            docChildren.push(new Paragraph({
+              spacing: { before: 240, after: 80 },
+              indent: { left: 360 },
+              children: [
+                new TextRun({
+                  text: '____________________', // Đường gạch chân phân cách chú thích chuẩn xuất bản
+                  bold: true,
+                  size: 20,
+                  font: 'Times New Roman',
+                  color: '666666'
+                })
+              ]
+            }));
+          }
+
+          // 2. Xử lý các dòng trong cùng một khối FOOTNOTE (có thể gồm nhiều đoạn/gạch đầu dòng)
+          const fLines = el.text.split('\n').map(l => l.trim()).filter(Boolean);
+          for (let lIdx = 0; lIdx < fLines.length; lIdx++) {
+            const fLine = fLines[lIdx];
+            const footnoteMatch = lIdx === 0 ? fLine.match(/^(\*?\d+|\[\d+\]|\(\*\)|\*)\s*(?:[-–—]\s*)?(.*)$/s) : null;
+            const runs: TextRun[] = [];
+
+            if (footnoteMatch) {
+              const marker = footnoteMatch[1];
+              const content = footnoteMatch[2];
+              runs.push(new TextRun({
+                text: marker,
+                superScript: true,
+                bold: true,
+                size: 20, // 10pt
                 font: 'Times New Roman',
-                color: '444444' // Màu xám sẫm thanh lịch
-              })
-            ]
-          }));
+                color: '222222'
+              }));
+              runs.push(new TextRun({
+                text: ' ' + ExecutiveTextCleaner.clean(content),
+                italics: true,
+                size: 21, // 10.5pt
+                font: 'Times New Roman',
+                color: '444444'
+              }));
+            } else {
+              runs.push(new TextRun({
+                text: ExecutiveTextCleaner.clean(fLine),
+                italics: true,
+                size: 21, // 10.5pt
+                font: 'Times New Roman',
+                color: '444444'
+              }));
+            }
+
+            docChildren.push(new Paragraph({
+              alignment: AlignmentType.JUSTIFIED,
+              spacing: { before: 30, after: 60, line: 260 },
+              indent: { left: 360 }, // 0.63cm thụt lề
+              children: runs
+            }));
+          }
         } else if (el.type === 'LIST_ITEM') {
           docChildren.push(new Paragraph({
             alignment: AlignmentType.JUSTIFIED,
