@@ -173,8 +173,8 @@ export class StructuredExtractorService {
     const docNoMatch = p1.match(/(?:Số|Số:)\s*([0-9a-zA-Z\/\-_.]+)/i);
     const docNo = docNoMatch && docNoMatch[1] && docNoMatch[1].length > 1 ? docNoMatch[1].trim() : null;
 
-    const authMatch = p1.match(/(ỦY BAN NHÂN DÂN[^\n|]+|UỶ BAN NHÂN DÂN[^\n|]+|UBND[^\n|]+|PHÒNG[^\n|]+|SỞ[^\n|]+|BỘ[^\n|]+|CÔNG AN[^\n|]+|BAN[^\n|]+)/i);
-    let issuingAuthority = authMatch ? authMatch[1].trim() : 'ỦY BAN NHÂN DÂN';
+    const authMatch = p1.match(/(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|PHÒNG|SỞ|BỘ|CÔNG\s*AN|BAN|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY)[^\n|]+/i);
+    let issuingAuthority = authMatch ? authMatch[0].trim() : 'ỦY BAN NHÂN DÂN';
     issuingAuthority = issuingAuthority.replace(/\s+/g, ' ').replace(/[|]/g, '').trim();
 
     const dateMatch = p1.match(/,\s*ngày\s*(\d{1,2})?\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})/i);
@@ -186,12 +186,20 @@ export class StructuredExtractorService {
       issuanceDate = `${y}-${m}-${d}`;
     }
 
-    const titleMatch = p1.match(/(?:BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN)\s*\n*([^\n|]+(?:\n[^\n|]+)?)/i);
+    const titleMatch = p1.match(/(?:BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN|CÔNG VĂN)\s*\n*([^\n|]+(?:\n[^\n|]+)?)/i);
     let reportTitle = titleMatch ? titleMatch[0].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() : 'Báo cáo công tác';
+
+    // Nếu không có tiêu đề BÁO CÁO... nhưng có V/v hoặc Về việc -> Đây là Công văn
+    if (!titleMatch) {
+      const vvMatch = p1.match(/(?:V\/v|Về việc)\s*([^\n|]+(?:\n[^\n|]+)?)/i);
+      if (vvMatch) {
+        reportTitle = `Công văn: ${vvMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}`;
+      }
+    }
     if (reportTitle.length < 5) reportTitle = 'Báo cáo tình hình thực hiện nhiệm vụ';
 
-    // Signer detection
-    const signerTitleMatch = lastPage.match(/(CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TRƯỞNG PHÒNG|THỦ TRƯỞNG)/i);
+    // Signer detection (Hỗ trợ cả cơ quan nhà nước và tập đoàn doanh nghiệp)
+    const signerTitleMatch = lastPage.match(/(CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TỔNG GIÁM ĐỐC|PHÓ TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|THỦ TRƯỞNG)/i);
     const lastLines = lastPage.split('\n').map(l => l.trim()).filter(l => l.length > 2);
     let signerName: string | null = null;
     if (lastLines.length > 0) {
@@ -241,7 +249,7 @@ export class StructuredExtractorService {
       has_appendix: classification.hasAppendix,
       signer: {
         name: signerName,
-        title: signerTitleMatch ? signerTitleMatch[1].trim() : null
+        title: signerTitleMatch ? (signerTitleMatch[1] || signerTitleMatch[0]).trim() : null
       },
       purpose: `${issuingAuthority} báo cáo về ${reportTitle} nhằm phục vụ công tác theo dõi, tổng hợp và chỉ đạo điều hành.`
     };

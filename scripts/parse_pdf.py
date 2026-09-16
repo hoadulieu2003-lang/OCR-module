@@ -43,10 +43,18 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def detect_watermark_patterns(doc) -> list:
     """
-    Phát hiện các mẫu Watermark lặp lại trên nhiều trang hoặc có góc nghiêng chéo
+    Phát hiện các mẫu Watermark thực thụ (chữ chéo / góc nghiêng hoặc từ khóa Watermark đặc thù).
+    Tuyệt đối không phân loại nhầm các từ vựng phổ biến trong văn bản làm watermark.
     """
     span_counts = defaultdict(lambda: {"count": 0, "angles": [], "pages": set(), "bbox": None})
     total_pages = len(doc)
+
+    COMMON_WM_KEYWORDS = {
+        'dự thảo', 'bản dự thảo', 'tài liệu mật', 'tuyệt mật', 'tối mật', 
+        'bản lưu', 'confidential', 'draft', 'sample document', 
+        'watermark', 'dấu chìm', 'bản nháp', 'scan by', 'camscanner', 'adobe scan',
+        'aspose', 'aspose.cells', 'evaluation only', 'copyright 2003', 'aspose pty ltd'
+    }
 
     for page_idx in range(total_pages):
         page = doc[page_idx]
@@ -69,13 +77,13 @@ def detect_watermark_patterns(doc) -> list:
 
     watermarks = []
     for text, data in span_counts.items():
-        # Điều kiện phát hiện watermark:
-        # 1. Có góc nghiêng bất thường (!= 0)
-        # 2. Hoặc lặp lại trên >= 50% số trang (khi tài liệu >= 3 trang)
+        # Điều kiện phát hiện watermark thực thụ:
+        # 1. Có góc nghiêng chéo rõ rệt (abs(angle) > 10)
+        # 2. Hoặc chứa từ khóa watermark chuyên dụng và độ dài ngắn (<= 80 ký tự)
         has_diagonal_angle = any(abs(a) > 10 for a in data["angles"])
-        is_high_frequency = total_pages >= 3 and len(data["pages"]) >= (total_pages * 0.45)
+        is_explicit_wm_kw = any(kw in text.lower() for kw in COMMON_WM_KEYWORDS) and len(text) <= 80
 
-        if has_diagonal_angle or is_high_frequency:
+        if has_diagonal_angle or is_explicit_wm_kw:
             watermarks.append({
                 "pattern_text": text,
                 "angle_deg": data["angles"][0] if data["angles"] else 0.0,
@@ -312,7 +320,15 @@ def parse_pdf_evidence(file_path: str) -> dict:
                     b_text = b[4].strip()
                     b_bbox = [round(b[0], 2), round(b[1], 2), round(b[2], 2), round(b[3], 2)]
                     
-                    is_wm = any(wm in b_text.lower() for wm in watermark_patterns_set)
+                    b_clean = b_text.strip().lower()
+                    is_wm = False
+                    for wm in watermark_patterns_set:
+                        wm_clean = wm.strip().lower()
+                        if not wm_clean:
+                            continue
+                        if b_clean == wm_clean or (len(b_clean) < len(wm_clean) + 40 and wm_clean in b_clean):
+                            is_wm = True
+                            break
 
                     block_type = "PARAGRAPH"
                     if is_wm:

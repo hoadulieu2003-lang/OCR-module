@@ -1,7 +1,7 @@
 import { ParsedDocument } from './pdf-parser.service.js';
 
 export interface ClassificationResult {
-  documentType: 'BAO_CAO' | 'PHIEU_TRINH' | 'TO_TRINH' | 'QUYET_DINH' | 'THONG_BAO_KET_LUAN' | 'BIEN_BAN' | 'KHAC';
+  documentType: 'BAO_CAO' | 'PHIEU_TRINH' | 'TO_TRINH' | 'QUYET_DINH' | 'THONG_BAO_KET_LUAN' | 'BIEN_BAN' | 'CONG_VAN' | 'KHAC';
   primaryDomain: string;
   domainTags: string[];
   isPeriodic: boolean;
@@ -31,6 +31,8 @@ export class DocumentClassifierService {
       docType = 'THONG_BAO_KET_LUAN';
     } else if (lowerP1.includes('biên bản')) {
       docType = 'BIEN_BAN';
+    } else if (lowerP1.includes('công văn') || (lowerP1.includes('kính gửi') && (lowerP1.includes('v/v') || lowerP1.includes('về việc')) && !lowerP1.includes('báo cáo'))) {
+      docType = 'CONG_VAN';
     }
 
     // 2. Gắn Multi-label Tags và tính điểm để xác định primaryDomain chính xác
@@ -46,6 +48,7 @@ export class DocumentClassifierService {
       'Y_TE': { count: 0, name: 'Y tế - Chăm sóc sức khỏe' },
       'SU_CO_THIEN_TAI': { count: 0, name: 'Phòng chống thiên tai & Sự cố' },
       'THANH_TRA': { count: 0, name: 'Thanh tra & Kiểm tra' },
+      'CHUYEN_DOI_SO': { count: 0, name: 'Chuyển đổi số & Công nghệ' },
       'KTXH_TONG_HOP': { count: 0, name: 'Kinh tế - Xã hội' }
     };
 
@@ -60,6 +63,7 @@ export class DocumentClassifierService {
     if (lowerP1.includes('y tế') || lowerP1.includes('trạm y tế') || lowerP1.includes('khám bệnh') || lowerP1.includes('chữa bệnh') || lowerP1.includes('dịch bệnh')) scores['Y_TE'].count += 10;
     if (lowerP1.includes('thiên tai') || lowerP1.includes('bão')) scores['SU_CO_THIEN_TAI'].count += 10;
     if (lowerP1.includes('thanh tra')) scores['THANH_TRA'].count += 10;
+    if (lowerP1.includes('chuyển đổi số') || lowerP1.includes('cđs') || lowerP1.includes('công nghệ số')) scores['CHUYEN_DOI_SO'].count += 10;
     if (lowerP1.includes('kinh tế - xã hội') || lowerP1.includes('ktxh')) scores['KTXH_TONG_HOP'].count += 10;
 
     // Kiểm tra toàn văn

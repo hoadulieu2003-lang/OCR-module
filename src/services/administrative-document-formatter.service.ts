@@ -101,22 +101,31 @@ export class AdministrativeDocumentFormatterService {
     let bodyStartIndex = 0;
     let bodyEndIndex = lines.length;
 
+    let hasExplicitTitle = false;
     for (let i = 0; i < Math.min(25, lines.length); i++) {
       const line = lines[i];
 
-      // Cơ quan cấp trên / cơ quan ban hành
-      if (/^(?:ỦY BAN NHÂN DÂN|UỶ BAN NHÂN DÂN|UBND|BỘ|SỞ|PHÒNG|BAN|CÔNG AN|VĂN PHÒNG)\b/i.test(line)) {
-        if (!superiorAgency && !line.includes('VĂN PHÒNG') && !line.includes('PHÒNG')) {
+      // Cơ quan cấp trên / cơ quan ban hành (hỗ trợ cả cơ quan nhà nước và tập đoàn, tổng công ty)
+      if (line.length <= 80 && !/ban\s*hành|hướng\s*dẫn|công\s*văn/i.test(line) && /^(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|BỘ|SỞ|PHÒNG|BAN|CÔNG\s*AN|VĂN\s*PHÒNG|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY|TRUNG\s*TÂM)\b/i.test(line)) {
+        if (/^(?:TẬP\s*ĐOÀN|BỘ|ỦY\s*BAN|UBND)/i.test(line) && !superiorAgency) {
           superiorAgency = line.toUpperCase();
         } else if (!issuingAgency || issuingAgency === 'ỦY BAN NHÂN DÂN') {
+          issuingAgency = line.toUpperCase();
+        } else if (!superiorAgency && superiorAgency !== line.toUpperCase()) {
+          superiorAgency = issuingAgency;
           issuingAgency = line.toUpperCase();
         }
       }
 
       // Số và ký hiệu
       const numMatch = line.match(/(?:Số|Số:)\s*([0-9a-zA-Z\/\-_.]+)/i);
-      if (numMatch) {
+      if (numMatch && numMatch[1].length >= 2 && !/^(trong|ngày|tháng|năm)$/i.test(numMatch[1])) {
         docNumber = line.startsWith('Số') ? line : `Số: ${numMatch[1]}`;
+      } else if (/^Số\s*:\s*$/i.test(line) && i + 1 < lines.length) {
+        const nextLine = lines[i + 1].trim();
+        if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine)) {
+          docNumber = `Số: ${nextLine}`;
+        }
       }
 
       // Địa danh và ngày tháng
@@ -127,6 +136,7 @@ export class AdministrativeDocumentFormatterService {
 
       // Tên loại văn bản
       if (/^(?:BÁO CÁO|PHIẾU TRÌNH|TỜ TRÌNH|QUYẾT ĐỊNH|THÔNG BÁO|KẾ HOẠCH|CÔNG VĂN|GIẤY MỜI)\b/i.test(line)) {
+        hasExplicitTitle = true;
         title = line.toUpperCase();
         bodyStartIndex = i + 1;
 
@@ -167,6 +177,28 @@ export class AdministrativeDocumentFormatterService {
       }
     }
 
+    // Nhận diện Công văn hành chính khi không có dòng tiêu đề to
+    if (!hasExplicitTitle) {
+      for (let i = 0; i < Math.min(18, lines.length); i++) {
+        const line = lines[i];
+        if (/^(?:V\/v|Về việc)\b/i.test(line)) {
+          title = 'CÔNG VĂN';
+          const subParts: string[] = [line];
+          let curIdx = i + 1;
+          while (curIdx < Math.min(i + 4, lines.length)) {
+            const cl = lines[curIdx];
+            if (/^(?:Kính gửi|Hà Nội|TP|Ngày|Căn cứ|[I|V|X]+\.|\d+\.)/i.test(cl)) break;
+            if (cl.length > 150) break;
+            subParts.push(cl);
+            curIdx++;
+          }
+          subject = subParts.join(' ').replace(/\s+/g, ' ').trim();
+          bodyStartIndex = Math.max(bodyStartIndex, curIdx);
+          break;
+        }
+      }
+    }
+
     // Quét tìm Kính gửi & Đơn vị trình
     for (let i = bodyStartIndex; i < Math.min(bodyStartIndex + 10, lines.length); i++) {
       const line = lines[i];
@@ -187,7 +219,7 @@ export class AdministrativeDocumentFormatterService {
       const line = lines[i];
 
       // Chức danh người ký
-      if (/^(?:CHỦ TỊCH|Q\.\s*CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|TRƯỞNG PHÒNG|TRƯỞNG CÔNG AN|CHÁNH VĂN PHÒNG|KT\.\s*CHỦ TỊCH|TM\.\s*ỦY BAN NHÂN DÂN)/i.test(line)) {
+      if (/^(?:CHỦ TỊCH|Q\.\s*CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TỔNG GIÁM ĐỐC|PHÓ TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|TRƯỞNG CÔNG AN|CHÁNH VĂN PHÒNG|KT\.\s*CHỦ TỊCH|KT\.\s*TỔNG GIÁM ĐỐC|KT\.\s*GIÁM ĐỐC|TM\.\s*ỦY BAN NHÂN DÂN)/i.test(line)) {
         signerTitle = line.toUpperCase();
         bodyEndIndex = Math.min(bodyEndIndex, i);
 
@@ -225,7 +257,8 @@ export class AdministrativeDocumentFormatterService {
       if (cleanContent.length <= 2 && !/^\d+\.?$/.test(cleanContent)) continue; // Bỏ qua ký tự dọc cô lập do scan lỗi
 
       // Bỏ qua các dòng lặp lại header/motto
-      if (/^(?:CỘNG HÒA XÃ HỘI|Độc lập - Tự do|Độc lập – Tự do|UBND|Số:)/i.test(line)) continue;
+      if (/^(?:CỘNG\s*HÒA\s*XÃ\s*HỘI|CỘNGHÒAXÃHỘI|Độc\s*lập\s*-\s*Tự\s*do|Độc\s*lập\s*–\s*Tự\s*do|Độclập-Tựdo|UBND|Số:)/i.test(line)) continue;
+      if (line === superiorAgency || line === issuingAgency || line === docNumber || line === locationAndDate) continue;
       if (line === title || line === subject || line === recipientsLine || line === submittingUnit) continue;
 
       // 1. Phân loại cấu trúc dòng

@@ -933,28 +933,45 @@
       let bodyEndIndex = lines.length;
 
       // 1. Nhận diện loại văn bản & Thể thức đầu trang
-      const first15Text = lines.slice(0, 15).join(' ').toUpperCase();
-      const hasDecree30Header = first15Text.includes('CỘNG HÒA XÃ HỘI') || 
-                                first15Text.includes('ĐỘC LẬP - TỰ DO') || 
-                                first15Text.includes('ĐỘC LẬP – TỰ DO') ||
-                                (first15Text.includes('ỦY BAN NHÂN DÂN') && first15Text.includes('SỐ:'));
+      const first15TextNoSpace = lines.slice(0, 15).join('').toUpperCase().replace(/[\s\-_–—]/g, '');
+      const first15Joined = lines.slice(0, 15).join(' ').toUpperCase();
+      const hasDecree30Header = first15TextNoSpace.includes('CỘNGHÒAXÃHỘICHỦNGHĨAVIỆTNAM') || 
+                                first15TextNoSpace.includes('ĐỘCLẬPTỰDOHẠNHPHÚC') || 
+                                first15Joined.includes('CỘNG HÒA XÃ HỘI') ||
+                                first15Joined.includes('ĐỘC LẬP - TỰ DO') ||
+                                first15Joined.includes('ĐỘC LẬP – TỰ DO') ||
+                                (first15Joined.includes('ỦY BAN NHÂN DÂN') && first15Joined.includes('SỐ:')) ||
+                                (first15Joined.includes('UBND') && first15Joined.includes('SỐ:')) ||
+                                lines.slice(0, 15).some(l => /^(?:Số|Số:)/i.test(l.trim()) && /V\/v|Về việc|Kính gửi/i.test(first15Joined));
 
+      let hasExplicitTitle = false;
       if (hasDecree30Header) {
         for (let i = 0; i < Math.min(25, lines.length); i++) {
           const line = lines[i];
-          if (/^(?:ỦY BAN NHÂN DÂN|UBND|SỞ|PHÒNG|BAN|BỘ|VĂN PHÒNG)\b/i.test(line)) {
-            if (!superiorAgency && !line.includes('VĂN PHÒNG') && !line.includes('PHÒNG')) {
+          if (line.length <= 80 && !/ban\s*hành|hướng\s*dẫn|công\s*văn/i.test(line) && /^(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|SỞ|PHÒNG|BAN|BỘ|VĂN\s*PHÒNG|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY|TRUNG\s*TÂM)\b/i.test(line)) {
+            if (/^(?:TẬP\s*ĐOÀN|BỘ|ỦY\s*BAN|UBND)/i.test(line) && !superiorAgency) {
               superiorAgency = line.toUpperCase();
-            } else {
+            } else if (!issuingAgency || issuingAgency === 'ỦY BAN NHÂN DÂN') {
+              issuingAgency = line.toUpperCase();
+            } else if (!superiorAgency && superiorAgency !== line.toUpperCase()) {
+              superiorAgency = issuingAgency;
               issuingAgency = line.toUpperCase();
             }
           }
           const numMatch = line.match(/(?:Số|Số:)\s*([0-9a-zA-Z\/\-_.]+)/i);
-          if (numMatch) docNumber = line.startsWith('Số') ? line : `Số: ${numMatch[1]}`;
+          if (numMatch && numMatch[1].length >= 2 && !/^(trong|ngày|tháng|năm)$/i.test(numMatch[1])) {
+            docNumber = line.startsWith('Số') ? line : `Số: ${numMatch[1]}`;
+          } else if (/^Số\s*:\s*$/i.test(line) && i + 1 < lines.length) {
+            const nextLine = lines[i + 1].trim();
+            if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine)) {
+              docNumber = `Số: ${nextLine}`;
+            }
+          }
           const dateMatch = line.match(/(?:[A-ZÀ-Ỹa-zà-ỹ\s]+,\s*)?ngày\s*\d{1,2}\s*tháng\s*\d{1,2}\s*năm\s*\d{4}/i);
           if (dateMatch) locationDate = dateMatch[0].trim();
 
-          if (/^(?:BÁO CÁO|PHIẾU TRÌNH|TỜ TRÌNH|QUYẾT ĐỊNH|THÔNG BÁO|KẾ HOẠCH|CÔNG VĂN)\b/i.test(line)) {
+          if (/^(?:BÁO CÁO|PHIẾU TRÌNH|TỜ TRÌNH|QUYẾT ĐỊNH|THÔNG BÁO|KẾ HOẠCH|CÔNG VĂN|GIẤY MỜI)\b/i.test(line)) {
+            hasExplicitTitle = true;
             docTitle = line.toUpperCase();
             bodyStartIndex = i + 1;
 
@@ -987,7 +1004,29 @@
           }
         }
 
-        for (let i = bodyStartIndex; i < Math.min(bodyStartIndex + 10, lines.length); i++) {
+        // Nhận diện Công văn hành chính khi không có dòng tiêu đề to
+        if (!hasExplicitTitle) {
+          for (let i = 0; i < Math.min(18, lines.length); i++) {
+            const line = lines[i];
+            if (/^(?:V\/v|Về việc)\b/i.test(line)) {
+              docTitle = 'CÔNG VĂN';
+              let subParts = [line];
+              let curIdx = i + 1;
+              while (curIdx < Math.min(i + 4, lines.length)) {
+                const cl = lines[curIdx];
+                if (/^(?:Kính gửi|Hà Nội|TP|Ngày|Căn cứ|[I|V|X]+\.|\d+\.)/i.test(cl)) break;
+                if (cl.length > 150) break;
+                subParts.push(cl);
+                curIdx++;
+              }
+              docSubject = subParts.join(' ').replace(/\s+/g, ' ').trim();
+              bodyStartIndex = Math.max(bodyStartIndex, curIdx);
+              break;
+            }
+          }
+        }
+
+        for (let i = 0; i < Math.min(25, lines.length); i++) {
           const line = lines[i];
           if (/^Kính gửi\s*[:\s]/i.test(line)) {
             docKinhGui = line;
@@ -1019,10 +1058,10 @@
         }
       }
 
-      // Quét tìm phần kết thúc
-      for (let i = lines.length - 1; i >= Math.max(0, lines.length - 15); i--) {
+      // Quét tìm phần kết thúc (Footer)
+      for (let i = lines.length - 1; i >= Math.max(0, lines.length - 20); i--) {
         const line = lines[i];
-        if (/^(?:CHỦ TỊCH|Q\.\s*CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|TRƯỞNG PHÒNG|KT\.\s*CHỦ TỊCH)/i.test(line)) {
+        if (/^(?:CHỦ TỊCH|Q\.\s*CHỦ TỊCH|PHÓ CHỦ TỊCH|GIÁM ĐỐC|PHÓ GIÁM ĐỐC|TỔNG GIÁM ĐỐC|PHÓ TỔNG GIÁM ĐỐC|TRƯỞNG PHÒNG|KT\.\s*CHỦ TỊCH|KT\.\s*TỔNG GIÁM ĐỐC|KT\.\s*GIÁM ĐỐC|TM\.\s*ỦY BAN NHÂN DÂN)/i.test(line)) {
           signerTitle = line.toUpperCase();
           bodyEndIndex = Math.min(bodyEndIndex, i);
           if (i + 1 < lines.length && lines[i + 1].length < 40 && !lines[i + 1].startsWith('-')) {
@@ -1114,8 +1153,11 @@
 
       for (let i = startIdx; i < endIdx; i++) {
         const line = lines[i];
-        if (index === 0 && (line === docTitle || line === docSubject || line === docKinhGui || line === docDonViTrinh)) continue;
-        if (/^(?:CỘNG HÒA XÃ HỘI|Độc lập - Tự do|UBND)/i.test(line)) continue;
+        if (index === 0 && (line === docTitle || line === docSubject || line === docKinhGui || line === docDonViTrinh || line === superiorAgency || line === issuingAgency || line === docNumber)) continue;
+        const lineNormalized = line.replace(/\s+/g, ' ').trim();
+        if (/^(?:CỘNG\s*HÒA\s*XÃ\s*HỘI|Độc\s*lập\s*-\s*Tự\s*do|UBND)/i.test(lineNormalized)) continue;
+        if (/^CỘNGHÒAXÃHỘI/i.test(line.replace(/\s+/g, ''))) continue;
+        if (/^Độclập-Tựdo/i.test(line.replace(/\s+/g, ''))) continue;
 
         if (pageTables.length > 0) {
           const cleanLower = line.trim().toLowerCase();
@@ -1133,60 +1175,69 @@
       }
 
       // Áp dụng Intelligent Paragraph & Heading Re-Stitching Engine đồng bộ 100% với Word DOCX
-      const stitchedElements = [];
-      for (const line of bodyParagraphs) {
-        const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line);
-        const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
-        const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
+      let stitchedElements = [];
+      try {
+        for (const line of bodyParagraphs) {
+          const isHeading1 = /^(?:I|II|III|IV|V|VI|VII|VIII|IX|X)\.\s*/i.test(line) || /^PHẦN\s+(?:THỨ\s+)?[I|V|X\d]+/i.test(line);
+          const isHeading2 = /^\d+[\.\)]\s+[A-ZÀ-Ỹ\p{Lu}]/u.test(line);
+          const isListItem = /^[-*•+]\s*/.test(line) || /^[a-zđ]\)\s+/i.test(line);
 
-        const prev = stitchedElements.length > 0 ? stitchedElements[stitchedElements.length - 1] : null;
+          const prev = stitchedElements.length > 0 ? stitchedElements[stitchedElements.length - 1] : null;
 
-        // 1. Nối Heading 1
-        if (prev && prev.type === 'HEADING_1' && !isHeading1 && !isHeading2 && !isListItem) {
-          const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
-          if (!prevEndsTerminal && (line === line.toUpperCase() || /^\p{Ll}/u.test(line))) {
-            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
-            continue;
+          // 1. Nối Heading 1
+          if (prev && prev.type === 'HEADING_1' && !isHeading1 && !isHeading2 && !isListItem) {
+            const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
+            if (!prevEndsTerminal && (line === line.toUpperCase() || /^\p{Ll}/u.test(line))) {
+              prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+              continue;
+            }
           }
-        }
 
-        // 2. Nối Heading 2
-        if (prev && prev.type === 'HEADING_2' && !isHeading1 && !isHeading2 && !isListItem) {
-          const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
-          if (!prevEndsTerminal && (/^\p{Ll}/u.test(line) || /^(?:và|về|của|trong|tại|theo|giai đoạn)(?:\s|$)/i.test(line))) {
-            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
-            continue;
+          // 2. Nối Heading 2
+          if (prev && prev.type === 'HEADING_2' && !isHeading1 && !isHeading2 && !isListItem) {
+            const prevEndsTerminal = /[.:!?]\s*$/.test(prev.text);
+            if (!prevEndsTerminal && (/^\p{Ll}/u.test(line) || /^(?:và|về|của|trong|tại|theo|giai đoạn)(?:\s|$)/i.test(line))) {
+              prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+              continue;
+            }
           }
-        }
 
-        // 3. Nối List Item
-        if (prev && prev.type === 'LIST_ITEM' && !isHeading1 && !isHeading2 && !isListItem) {
-          const prevEndsTerminal = /[.;!?]\s*$/.test(prev.text);
-          const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
-          if (!prevEndsTerminal || startsLowerOrCont) {
-            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
-            continue;
+          // 3. Nối List Item
+          if (prev && prev.type === 'LIST_ITEM' && !isHeading1 && !isHeading2 && !isListItem) {
+            const prevEndsTerminal = /[.;!?]\s*$/.test(prev.text);
+            const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+            if (!prevEndsTerminal || startsLowerOrCont) {
+              prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+              continue;
+            }
           }
-        }
 
-        // 4. Nối Paragraph
-        if (prev && prev.type === 'PARAGRAPH' && !isHeading1 && !isHeading2 && !isListItem) {
-          const prevText = prev.text.trim();
-          const isAbbr = /(?:TP|Tx|Tt|Ths|Bs|Gs|TS|PGS|K\/g|Đ\/c|Đc|đ\/c|đc|v\.v|v\.v\.|NĐ-CP|QĐ-UBND|BC-UBND|TTr-UBND|CV-UBND|Số|số)\.\s*$/i.test(prevText);
-          const isDec = /\d+\.\s*$/.test(prevText) && /^\d+/.test(line);
-          const prevEndsWithTerminal = /[.:!?]["'”’]?\s*$/.test(prevText) && !isAbbr && !isDec;
-          const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
+          // 4. Nối Paragraph
+          if (prev && prev.type === 'PARAGRAPH' && !isHeading1 && !isHeading2 && !isListItem) {
+            const prevText = prev.text.trim();
+            const isAbbr = /(?:TP|Tx|Tt|Ths|Bs|Gs|TS|PGS|K\/g|Đ\/c|Đc|đ\/c|đc|v\.v|v\.v\.|NĐ-CP|QĐ-UBND|BC-UBND|TTr-UBND|CV-UBND|Số|số)\.\s*$/i.test(prevText);
+            const isDec = /\d+\.\s*$/.test(prevText) && /^\d+/.test(line);
+            const prevEndsWithTerminal = /[.:!?]["'”’]?\s*$/.test(prevText) && !isAbbr && !isDec;
+            const startsLowerOrCont = /^(?:[\p{Ll},;)\]\d+%“"']|[-–—]\s+[a-zà-ỹ\p{Ll}])/u.test(line);
 
-          if (!prevEndsWithTerminal || startsLowerOrCont) {
-            prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
-            continue;
+            if (!prevEndsWithTerminal || startsLowerOrCont) {
+              prev.text = `${prev.text} ${line}`.replace(/\s+/g, ' ');
+              continue;
+            }
           }
-        }
 
-        if (isHeading1) stitchedElements.push({ type: 'HEADING_1', text: line });
-        else if (isHeading2) stitchedElements.push({ type: 'HEADING_2', text: line });
-        else if (isListItem) stitchedElements.push({ type: 'LIST_ITEM', text: line });
-        else stitchedElements.push({ type: 'PARAGRAPH', text: line });
+          if (isHeading1) stitchedElements.push({ type: 'HEADING_1', text: line });
+          else if (isHeading2) stitchedElements.push({ type: 'HEADING_2', text: line });
+          else if (isListItem) stitchedElements.push({ type: 'LIST_ITEM', text: line });
+          else stitchedElements.push({ type: 'PARAGRAPH', text: line });
+        }
+      } catch (stitchErr) {
+        console.warn('Paragraph stitching warning, using raw lines:', stitchErr);
+        stitchedElements = bodyParagraphs.map(line => ({ type: 'PARAGRAPH', text: line }));
+      }
+
+      if (stitchedElements.length === 0 && bodyParagraphs.length > 0) {
+        stitchedElements = bodyParagraphs.map(line => ({ type: 'PARAGRAPH', text: line }));
       }
 
       if (stitchedElements.length > 0) {

@@ -46,6 +46,7 @@ export const CoreMetadataSchema = z.object({
     'QUYET_DINH',
     'THONG_BAO_KET_LUAN',
     'BIEN_BAN',
+    'CONG_VAN',
     'KHAC'
   ]).describe("Loại hình văn bản"),
   document_number: z.string().nullable().describe("Số và ký hiệu văn bản (.../BC-UBND, .../TTr-UBND)"),
