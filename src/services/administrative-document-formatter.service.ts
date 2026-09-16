@@ -124,9 +124,12 @@ export class AdministrativeDocumentFormatterService {
     for (let i = 0; i < Math.min(25, lines.length); i++) {
       const line = lines[i];
 
-      // Cơ quan cấp trên / cơ quan ban hành (hỗ trợ cả cơ quan nhà nước và tập đoàn, tổng công ty)
-      if (line.length <= 80 && !/ban\s*hành|hướng\s*dẫn|công\s*văn/i.test(line) && /^(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|BỘ|SỞ|PHÒNG|BAN|CÔNG\s*AN|VĂN\s*PHÒNG|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY|TRUNG\s*TÂM)\b/i.test(line)) {
-        if (/^(?:TẬP\s*ĐOÀN|BỘ|ỦY\s*BAN|UBND)/i.test(line) && !superiorAgency) {
+      // Cơ quan cấp trên / cơ quan ban hành (hỗ trợ cả cơ quan nhà nước, tập đoàn, tổng công ty và cấp xã/phường/thị trấn/huyện)
+      const isAgencyLine = line.length <= 80 && !/ban\s*hành|hướng\s*dẫn|công\s*văn/i.test(line) &&
+        /^(?:ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND|HỘI\s*ĐỒNG\s*NHÂN\s*DÂN|HĐND|BỘ|SỞ|PHÒNG|BAN|CHI\s*CỤC|ĐỘI|CÔNG\s*AN|VĂN\s*PHÒNG|TẬP\s*ĐOÀN|TỔNG\s*CÔNG\s*TY|CÔNG\s*TY|TRUNG\s*TÂM|XÃ|PHƯỜNG|THỊ\s*TRẤN|HUYỆN|QUẬN|THÀNH\s*PHỐ|THỊ\s*XÃ|TỈNH)\b/i.test(line);
+
+      if (isAgencyLine) {
+        if (/^(?:TẬP\s*ĐOÀN|BỘ|ỦY\s*BAN\s*NHÂN\s*DÂN|UỶ\s*BAN\s*NHÂN\s*DÂN|UBND)\b/i.test(line) && !superiorAgency) {
           superiorAgency = line.toUpperCase();
         } else if (!issuingAgency || issuingAgency === 'ỦY BAN NHÂN DÂN') {
           issuingAgency = line.toUpperCase();
@@ -137,9 +140,17 @@ export class AdministrativeDocumentFormatterService {
       }
 
       // Số và ký hiệu
-      const numMatch = line.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\/\-_.]+)/i);
+      const numMatch = line.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\-_.]*\s*(?:\/|\s*\/)\s*[0-9a-zA-Z\-_.]+|[0-9a-zA-Z\/\-_.]+)/i);
       if (numMatch && numMatch[1].length >= 2 && !/^(trong|ngày|tháng|năm|li)$/i.test(numMatch[1])) {
-        docNumber = `Số: ${numMatch[1]}`;
+        let extractedNum = numMatch[1].trim();
+        if (extractedNum.startsWith('/')) {
+          const standaloneNum = (metadata?.document_number ? String(metadata.document_number).match(/(\d+)/)?.[1] : null) ||
+            lines.slice(0, 15).map(l => l.match(/^(\d{1,5})$/)?.[1]).find(Boolean);
+          if (standaloneNum) {
+            extractedNum = `${standaloneNum}${extractedNum}`;
+          }
+        }
+        docNumber = `Số: ${extractedNum}`;
       } else if (/^Số\s*:\s*$/i.test(line) && i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
         if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine) && !/^li$/i.test(nextLine)) {
@@ -147,10 +158,26 @@ export class AdministrativeDocumentFormatterService {
         }
       }
 
-      // Địa danh và ngày tháng
-      const dateMatch = line.match(/(?:[A-ZÀ-Ỹa-zà-ỹ\s]+,\s*)?ngày\s*\d{1,2}\s*tháng\s*\d{1,2}\s*năm\s*\d{4}/i);
+      // Địa danh và ngày tháng (hỗ trợ cả trường hợp ngày bị trống hoặc điền đè)
+      const dateMatch = line.match(/(?:([A-ZÀ-Ỹa-zà-ỹ\s]+),\s*)?ngày\s*(\d{1,2}|[.]{2,}|…)?\s*tháng\s*(\d{1,2}|[.]{2,}|…)\s*năm\s*(\d{4})/i);
       if (dateMatch) {
-        locationAndDate = dateMatch[0].trim();
+        let loc = dateMatch[1]?.trim();
+        let day = dateMatch[2]?.trim();
+        const month = dateMatch[3]?.trim();
+        const year = dateMatch[4]?.trim();
+
+        if (!day || day.includes('.')) {
+          const metaDay = metadata?.issuance_date ? String(metadata.issuance_date).split('-')[2] : null;
+          const standaloneDay = metaDay || lines.slice(0, 15).map(l => l.match(/^(\d{1,2})$/)?.[1]).find(d => d && Number(d) >= 1 && Number(d) <= 31);
+          if (standaloneDay) {
+            day = String(Number(standaloneDay));
+          }
+        }
+        if (day && !day.includes('.')) {
+          locationAndDate = `${loc ? loc + ', ' : ''}ngày ${day} tháng ${month} năm ${year}`;
+        } else {
+          locationAndDate = dateMatch[0].trim();
+        }
       }
 
       // Tên loại văn bản
@@ -205,10 +232,14 @@ export class AdministrativeDocumentFormatterService {
 
     // Tách chuẩn superiorAgency và issuingAgency nếu bị dính hoặc trùng lặp
     if (superiorAgency && issuingAgency) {
-      if (issuingAgency.includes(superiorAgency)) {
+      if (superiorAgency.trim().toUpperCase() === issuingAgency.trim().toUpperCase()) {
+        superiorAgency = null;
+      } else if (issuingAgency.includes(superiorAgency)) {
         const remaining = issuingAgency.replace(superiorAgency, '').replace(/^[\s\-–—:]+/, '').trim();
         if (remaining) {
           issuingAgency = remaining;
+        } else {
+          superiorAgency = null;
         }
       }
     } else if (!superiorAgency && issuingAgency) {
@@ -518,10 +549,15 @@ export class AdministrativeDocumentFormatterService {
       }
     }
 
+    const finalIssuing = issuingAgency || 'ỦY BAN NHÂN DÂN';
+    const finalSuperior = (superiorAgency && superiorAgency.trim().toUpperCase() !== finalIssuing.trim().toUpperCase())
+      ? superiorAgency
+      : (finalIssuing !== 'ỦY BAN NHÂN DÂN' && !superiorAgency ? null : null);
+
     return {
       header: {
-        superiorAgency: superiorAgency || (issuingAgency !== 'ỦY BAN NHÂN DÂN' ? 'ỦY BAN NHÂN DÂN' : null),
-        issuingAgency: issuingAgency || 'ỦY BAN NHÂN DÂN',
+        superiorAgency: finalSuperior,
+        issuingAgency: finalIssuing,
         docNumber: docNumber || 'Số: .../BC-UBND',
         nationalMotto: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM',
         subMotto: 'Độc lập - Tự do - Hạnh phúc',

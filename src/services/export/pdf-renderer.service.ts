@@ -56,7 +56,7 @@ export class PdfRendererService {
         // --- 1. HEADER 2 CỘT CHUẨN NGHỊ ĐỊNH 30 ---
         // Cột trái: Cơ quan ban hành & Số hiệu
         doc.fontSize(10).font('Times-Bold');
-        if (struct.header.superiorAgency) {
+        if (struct.header.superiorAgency && struct.header.superiorAgency.trim().toUpperCase() !== struct.header.issuingAgency.trim().toUpperCase()) {
           doc.font('Times-Regular').text(struct.header.superiorAgency, startX, startY, { width: halfWidth - 10, align: 'center' });
         }
         doc.font('Times-Bold').text(struct.header.issuingAgency, startX, doc.y, { width: halfWidth - 10, align: 'center' });

@@ -34,7 +34,7 @@ export class DocxRendererService {
 
     // --- 1. KHỐI TIÊU ĐỀ 2 CỘT (HEADER TABLE) THEO NGHỊ ĐỊNH 30 ---
     const agencyLeftRuns: TextRun[] = [];
-    if (struct.header.superiorAgency) {
+    if (struct.header.superiorAgency && struct.header.superiorAgency.trim().toUpperCase() !== struct.header.issuingAgency.trim().toUpperCase()) {
       agencyLeftRuns.push(new TextRun({ text: struct.header.superiorAgency, size: 24, font: 'Times New Roman' }));
       agencyLeftRuns.push(new TextRun({ break: 1 }));
     }
@@ -54,14 +54,17 @@ export class DocxRendererService {
       new TextRun({ text: struct.header.locationAndDate, italics: true, size: 26, font: 'Times New Roman' })
     ];
 
+    const colLeft = 3600;
+    const colRight = 5545;
+
     const headerTable = new Table({
       width: { size: 9145, type: WidthType.DXA },
-      columnWidths: [4250, 4895],
+      columnWidths: [colLeft, colRight],
       rows: [
         new TableRow({
           children: [
             new TableCell({
-              width: { size: 4250, type: WidthType.DXA },
+              width: { size: colLeft, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },
@@ -77,7 +80,7 @@ export class DocxRendererService {
               ]
             }),
             new TableCell({
-              width: { size: 4895, type: WidthType.DXA },
+              width: { size: colRight, type: WidthType.DXA },
               borders: {
                 top: { style: BorderStyle.NONE },
                 bottom: { style: BorderStyle.NONE },

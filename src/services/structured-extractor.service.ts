@@ -171,10 +171,16 @@ export class StructuredExtractorService {
 
     // 1. Metadata định danh văn bản
     // Khóa chặt không bắt nhầm "số liệu", "số lượng", "số thứ tự"
-    const docNoMatch = p1.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\/\-_.]+)/i) ||
-                       p1.match(/(?:Số|Số:)\s*(?!liệu\b|lượng\b|thứ\b)([0-9a-zA-Z\/\-_.]+)/i);
+    const docNoMatch = p1.match(/(?:^|\n)\s*Số\s*(?!liệu\b|lượng\b|thứ\b|phận\b|hóa\b)[:.]?\s*([0-9a-zA-Z\-_.]*\s*(?:\/|\s*\/)\s*[0-9a-zA-Z\-_.]+|[0-9a-zA-Z\/\-_.]+)/i) ||
+                       p1.match(/(?:Số|Số:)\s*(?!liệu\b|lượng\b|thứ\b)([0-9a-zA-Z\-_.]*\s*(?:\/|\s*\/)\s*[0-9a-zA-Z\-_.]+|[0-9a-zA-Z\/\-_.]+)/i);
     let docNo = docNoMatch && docNoMatch[1] && docNoMatch[1].length > 1 ? docNoMatch[1].trim() : null;
     if (docNo && /^li$/i.test(docNo)) docNo = null;
+    if (docNo && docNo.startsWith('/')) {
+      const numMatch = p1.substring(0, 500).match(/(?:^|\n|\s)(\d{1,5})(?:\s+|\n+|\s*\/)/);
+      if (numMatch) {
+        docNo = `${numMatch[1]}${docNo}`;
+      }
+    }
 
     // Nhận diện cơ quan ban hành và cơ quan trực thuộc (ví dụ UBND XÃ TRẦN PHÚ)
     let issuingAuthority = 'ỦY BAN NHÂN DÂN';
@@ -192,13 +198,18 @@ export class StructuredExtractorService {
       issuingAuthority = candidate.replace(/\s+/g, ' ').replace(/[|]/g, '').trim();
     }
 
-    const dateMatch = p1.match(/,\s*ngày\s*(\d{1,2})?\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})/i);
+    const dateMatch = p1.match(/(?:,\s*)?ngày\s*(\d{1,2})?\s*tháng\s*(\d{1,2})\s*năm\s*(\d{4})/i);
     let issuanceDate: string | null = null;
     if (dateMatch) {
-      const d = dateMatch[1] ? dateMatch[1].padStart(2, '0') : '01';
+      let d = dateMatch[1];
+      if (!d) {
+        const dayMatch = p1.substring(0, 600).match(/(?:ngày|\n)\s*(\d{1,2})\s*(?:\n|tháng)/i);
+        if (dayMatch) d = dayMatch[1];
+      }
+      const dStr = d ? d.padStart(2, '0') : '01';
       const m = dateMatch[2].padStart(2, '0');
       const y = dateMatch[3];
-      issuanceDate = `${y}-${m}-${d}`;
+      issuanceDate = `${y}-${m}-${dStr}`;
     }
 
     // Bóc tách toàn bộ tiêu đề đa dòng (Heading + toàn bộ các dòng phụ đề bổ nghĩa)

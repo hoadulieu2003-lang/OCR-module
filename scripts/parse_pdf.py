@@ -341,7 +341,49 @@ def parse_pdf_evidence(file_path: str) -> dict:
 
         # Nếu không chạy OCR (PDF điện tử bình thường), trích xuất từ PyMuPDF blocks
         if not page_ocr_applied:
-            for b_idx, b in enumerate(blocks_raw):
+            # Thu thập words của trang để xử lý các từ đè (overlay text/stamp/fill-in fields như Số hiệu, Ngày tháng)
+            page_words = page.get_text("words")
+            consumed_overlay_words = set()
+
+            # Quét tìm các khoảng trống mẫu (gap) cần điền từ đè:
+            # 1. 'Số:       /...' -> điền số hiệu nằm giữa 'Số:' và '/'
+            # 2. 'ngày      tháng' -> điền ngày nằm giữa 'ngày' và 'tháng'
+            processed_blocks_raw = []
+            for b in blocks_raw:
+                if len(b) >= 5 and b[4].strip():
+                    b_text = b[4].strip()
+                    if 'Số:' in b_text and re.search(r'/(?:[A-ZĐ0-9\-_]+)', b_text) and not re.search(r'Số:\s*\d+', b_text):
+                        so_w = [w for w in page_words if w[4] == 'Số:' and abs(w[1] - b[1]) < 20]
+                        slash_w = [w for w in page_words if '/' in w[4] and abs(w[1] - b[1]) < 20]
+                        if so_w and slash_w:
+                            between = [w for w in page_words if so_w[0][2] - 2 <= w[0] and w[2] <= slash_w[0][0] + 2 and abs(w[1] - so_w[0][1]) < 6]
+                            if between:
+                                between.sort(key=lambda x: x[0])
+                                num_str = ' '.join([w[4] for w in between])
+                                b_text = b_text.replace('Số:', f'Số: {num_str}')
+                                b_text = re.sub(r'\s+/(?=[A-ZĐ0-9\-_])', ' /', b_text)
+                                for w in between:
+                                    consumed_overlay_words.add((w[0], w[1], w[4]))
+                    if 'ngày' in b_text and 'tháng' in b_text and not re.search(r'ngày\s*\d+', b_text):
+                        ngay_w = [w for w in page_words if w[4] == 'ngày' and abs(w[1] - b[1]) < 20]
+                        thang_w = [w for w in page_words if w[4] == 'tháng' and abs(w[1] - b[1]) < 20]
+                        if ngay_w and thang_w:
+                            between = [w for w in page_words if ngay_w[0][2] - 2 <= w[0] and w[2] <= thang_w[0][0] + 2 and abs(w[1] - ngay_w[0][1]) < 6]
+                            if between:
+                                between.sort(key=lambda x: x[0])
+                                day_str = ' '.join([w[4] for w in between])
+                                b_text = b_text.replace('ngày', f'ngày {day_str}')
+                                b_text = re.sub(r'\s+tháng', ' tháng', b_text)
+                                for w in between:
+                                    consumed_overlay_words.add((w[0], w[1], w[4]))
+
+                    blk_words = [w for w in page_words if b[0]-2 <= w[0] and w[2] <= b[2]+2 and b[1]-2 <= w[1] and w[3] <= b[3]+2]
+                    if blk_words and all((w[0], w[1], w[4]) in consumed_overlay_words for w in blk_words):
+                        continue
+
+                    processed_blocks_raw.append((b[0], b[1], b[2], b[3], b_text))
+
+            for b_idx, b in enumerate(processed_blocks_raw):
                 if len(b) >= 5 and b[4].strip():
                     b_text = b[4].strip()
                     b_bbox = [round(b[0], 2), round(b[1], 2), round(b[2], 2), round(b[3], 2)]
