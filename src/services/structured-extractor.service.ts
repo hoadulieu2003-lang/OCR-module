@@ -214,29 +214,56 @@ export class StructuredExtractorService {
 
     // Bóc tách toàn bộ tiêu đề đa dòng (Heading + toàn bộ các dòng phụ đề bổ nghĩa)
     let reportTitle = 'Báo cáo công tác';
-    const titleRegex = /(?:^|\n)\s*(BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN|CÔNG VĂN)\b/i;
-    const tMatch = p1.match(titleRegex);
-    if (tMatch && tMatch.index !== undefined) {
-      const afterTitle = p1.substring(tMatch.index + tMatch[0].length);
-      const titleLines = afterTitle.split('\n').map(l => l.trim()).filter(Boolean);
-      const subParts: string[] = [tMatch[1].toUpperCase()];
-      for (let i = 0; i < Math.min(5, titleLines.length); i++) {
-        const line = titleLines[i];
-        if (
-          /^(?:\(|Phần|PHẦN|Kính gửi|Đơn vị trình|Căn cứ|Nơi nhận|I\.|1\.|[-*•+]|[a-zđ]\))/i.test(line) ||
-          /^(?:ỦY BAN|UBND|CỘNG HÒA|Số:)/i.test(line)
-        ) {
-          break;
+    const isAppendix = /^\s*phụ\s+lục\b/i.test(p1) || (/(?:^|\n)\s*phụ\s+lục\b/i.test(p1.substring(0, 300)) && !p1.toLowerCase().includes('cộng hòa xã hội'));
+
+    if (isAppendix) {
+      const plLines = p1.split('\n').map(l => l.trim()).filter(Boolean);
+      const plParts: string[] = [];
+      let foundPl = false;
+      for (const line of plLines) {
+        if (/^phụ\s+lục\b/i.test(line)) {
+          foundPl = true;
+          plParts.push(line.toUpperCase());
+          continue;
         }
-        if (line.length > 250) break;
-        subParts.push(line);
-        if (/[.:]\s*$/.test(line)) break;
+        if (foundPl) {
+          if (/^(?:TT|STT|Đơn vị|Số:|ỦY BAN|UBND)\b/i.test(line) || /^I\./i.test(line)) {
+            break;
+          }
+          plParts.push(line);
+          if (plParts.length >= 3) break;
+        }
       }
-      reportTitle = subParts.join(' ').replace(/\s+/g, ' ').trim();
+      if (plParts.length > 0) {
+        reportTitle = plParts.join(' - ');
+      } else {
+        reportTitle = 'PHỤ LỤC BẢNG BIỂU';
+      }
     } else {
-      const vvMatch = p1.match(/(?:V\/v|Về việc)\s*([^\n|]+(?:\n[^\n|]+)?)/i);
-      if (vvMatch) {
-        reportTitle = `Công văn: ${vvMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}`;
+      const titleRegex = /(?:^|\n)\s*(BÁO CÁO|TỜ TRÌNH|THÔNG BÁO|QUYẾT ĐỊNH|PHIẾU TRÌNH|BIÊN BẢN|CÔNG VĂN)\b/i;
+      const tMatch = p1.match(titleRegex);
+      if (tMatch && tMatch.index !== undefined) {
+        const afterTitle = p1.substring(tMatch.index + tMatch[0].length);
+        const titleLines = afterTitle.split('\n').map(l => l.trim()).filter(Boolean);
+        const subParts: string[] = [tMatch[1].toUpperCase()];
+        for (let i = 0; i < Math.min(5, titleLines.length); i++) {
+          const line = titleLines[i];
+          if (
+            /^(?:\(|Phần|PHẦN|Kính gửi|Đơn vị trình|Căn cứ|Nơi nhận|I\.|1\.|[-*•+]|[a-zđ]\))/i.test(line) ||
+            /^(?:ỦY BAN|UBND|CỘNG HÒA|Số:)/i.test(line)
+          ) {
+            break;
+          }
+          if (line.length > 250) break;
+          subParts.push(line);
+          if (/[.:]\s*$/.test(line)) break;
+        }
+        reportTitle = subParts.join(' ').replace(/\s+/g, ' ').trim();
+      } else {
+        const vvMatch = p1.match(/(?:V\/v|Về việc)\s*([^\n|]+(?:\n[^\n|]+)?)/i);
+        if (vvMatch) {
+          reportTitle = `Công văn: ${vvMatch[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()}`;
+        }
       }
     }
     if (reportTitle.length < 5) reportTitle = 'Báo cáo tình hình thực hiện nhiệm vụ';
@@ -325,9 +352,11 @@ export class StructuredExtractorService {
       }
     }
 
+    const isPureTableDoc = Boolean(classification.isPureTable || isAppendix || classification.documentType === 'PHU_LUC' || (doc.pages.length > 0 && doc.pages.every(p => p.tables && p.tables.length > 0)));
+
     const metadata: CoreMetadata = {
       document_title: reportTitle,
-      document_type: classification.documentType,
+      document_type: isAppendix ? 'PHU_LUC' : classification.documentType,
       document_number: docNo,
       issuing_authority: issuingAuthority,
       receiving_authority: receivingAuthority || 'Cơ quan cấp trên / Lãnh đạo UBND',
@@ -338,7 +367,8 @@ export class StructuredExtractorService {
       primary_domain: classification.primaryDomain,
       domain_tags: classification.domainTags,
       is_periodic: classification.isPeriodic,
-      has_appendix: classification.hasAppendix,
+      has_appendix: classification.hasAppendix || isAppendix,
+      is_pure_table: isPureTableDoc,
       signer: {
         name: signerName,
         title: signerTitle || null
@@ -354,7 +384,24 @@ export class StructuredExtractorService {
     // 2a. Trích xuất chỉ số từ văn bản (Dạng danh sách & Dạng văn xuôi tự nhiên)
     for (const page of doc.pages) {
       const text = page.text;
-      const lines = text.split('\n');
+      const rawLines = text.split('\n');
+      const lines: string[] = [];
+
+      for (let i = 0; i < rawLines.length; i++) {
+        let l = rawLines[i].trim();
+        if (!l) continue;
+        // Nối dòng bị ngắt giữa chừng do typesetting của PDF (khi chưa kết thúc câu bằng dấu : . ; ! ?)
+        while (
+          i + 1 < rawLines.length &&
+          !/[:.?!;]$/.test(l) &&
+          !/^[-*•+]|\d+\.|\([a-z0-9]+\)/i.test(rawLines[i + 1].trim())
+        ) {
+          l += ' ' + rawLines[i + 1].trim();
+          i++;
+        }
+        lines.push(l);
+      }
+
       let isInBackgroundSection = false;
 
       for (const line of lines) {
@@ -369,20 +416,24 @@ export class StructuredExtractorService {
         if (isInBackgroundSection) continue;
 
         // Pattern 1: Dấu hai chấm (Chỉ số: Số liệu)
-        const colonMatch = trimmed.match(/^[-*•+]?\s*([^:]{3,60}):\s*(?:đạt\s*)?([0-9.,]+(?:\/[0-9.,]+)?)\s*(%|tỷ đồng|triệu đồng|nghìn đồng|ha|m2|hộ|người|vụ|vụ việc|hồ sơ|văn bản|nhiệm vụ|dự án|công trình|km|lượt)?(?:\s*\(.*?\))?/i);
+        const colonMatch = trimmed.match(/^[-*•+]?\s*([^:]{3,120}):\s*(?:đạt\s*)?([0-9.,]+(?:\/[0-9.,]+)?)\s*(%|tỷ đồng|triệu đồng|nghìn đồng|ha|m2|hộ|người|vụ|vụ việc|hồ sơ|văn bản|nhiệm vụ|dự án|công trình|km|lượt|tthc|thủ tục)?(?:\s*\(.*?\))?/i);
 
         // Pattern 2: Dạng văn xuôi tự nhiên (Không cần dấu hai chấm)
-        const narrativeMatch = !colonMatch ? trimmed.match(/(?:[-*•+]?\s*)?((?:tổng\s+)?(?:thu ngân sách|chi ngân sách|giải ngân|vốn đầu tư|nhiệm vụ|chỉ tiêu|diện tích|số hộ|hồ sơ|tỷ lệ|sản lượng|doanh thu|kim ngạch|giá trị|biên chế|dự án|công trình)[^,.;:\n]{0,40}?)\s+(ước\s+đạt|đạt|thực hiện|hoàn thành|giải ngân được|thu được|chi|tăng|giảm)\s+([0-9.,]+(?:\/[0-9.,]+)?)\s*(%|tỷ đồng|triệu đồng|nghìn đồng|ha|m2|hộ|người|vụ|vụ việc|hồ sơ|văn bản|nhiệm vụ|dự án|công trình|km|lượt)?/i) : null;
+        const narrativeMatch = !colonMatch ? trimmed.match(/(?:[-*•+]?\s*)?((?:tổng\s+)?(?:thu ngân sách|chi ngân sách|giải ngân|vốn đầu tư|nhiệm vụ|chỉ tiêu|diện tích|số hộ|hồ sơ|tỷ lệ|sản lượng|doanh thu|kim ngạch|giá trị|biên chế|dự án|công trình)[^,.;:\n]{0,60}?)\s+(ước\s+đạt|đạt|thực hiện|hoàn thành|giải ngân được|thu được|chi|tăng|giảm)\s+([0-9.,]+(?:\/[0-9.,]+)?)\s*(%|tỷ đồng|triệu đồng|nghìn đồng|ha|m2|hộ|người|vụ|vụ việc|hồ sơ|văn bản|nhiệm vụ|dự án|công trình|km|lượt|tthc|thủ tục)?/i) : null;
 
         const matched = colonMatch || narrativeMatch;
 
         if (matched) {
-          const rawIndicator = (colonMatch ? matched[1] : matched[1]).trim().replace(/^[-*•+\d.)\s]+/, '');
+          let rawIndicator = (colonMatch ? matched[1] : matched[1]).trim().replace(/^[-*•+\d.)\s]+/, '');
+          rawIndicator = rawIndicator.replace(/^\)+/, '').trim();
           const val = (colonMatch ? matched[2] : matched[3]).trim();
           const rawUnit = colonMatch ? matched[3] : matched[4];
           const unit = rawUnit ? rawUnit.trim() : null;
 
-          if (/^(theo|căn cứ|tại|nghị định|quyết định|thông tư|luật|nghị quyết)\b/i.test(rawIndicator)) {
+          if (/^(theo|căn cứ|tại|nghị định|quyết định|thông tư|luật|nghị quyết)\b/i.test(rawIndicator) ||
+              /(?:ủy\s*ban|uỷ\s*ban|ubnd)\s+nhân\s+dân/i.test(rawIndicator) ||
+              /\b(?:kính\s+gửi|nơi\s+nhận)\b/i.test(rawIndicator) ||
+              /\bSố\s*:?\s*$/i.test(rawIndicator)) {
             continue;
           }
 

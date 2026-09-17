@@ -47,6 +47,7 @@ export const CoreMetadataSchema = z.object({
     'THONG_BAO_KET_LUAN',
     'BIEN_BAN',
     'CONG_VAN',
+    'PHU_LUC',
     'KHAC'
   ]).describe("Loại hình văn bản"),
   document_number: z.string().nullable().describe("Số và ký hiệu văn bản (.../BC-UBND, .../TTr-UBND)"),
@@ -60,6 +61,7 @@ export const CoreMetadataSchema = z.object({
   domain_tags: z.array(z.string()).default([]).describe("Multi-label tags: ['DAU_TU_CONG', 'GPMB', 'KIEN_NGHI', 'NGAN_SACH']"),
   is_periodic: z.boolean().default(false).describe("Báo cáo định kỳ (true) hay đột xuất/chuyên đề (false)"),
   has_appendix: z.boolean().default(false).describe("Văn bản có phụ lục/bảng biểu đính kèm hay không"),
+  is_pure_table: z.boolean().default(false).describe("Văn bản thuần bảng biểu / phụ lục bảng biểu"),
   signer: z.object({
     name: z.string().nullable().describe("Họ và tên người ký"),
     title: z.string().nullable().describe("Chức vụ người ký (Chủ tịch, Phó Chủ tịch, Trưởng phòng...)")

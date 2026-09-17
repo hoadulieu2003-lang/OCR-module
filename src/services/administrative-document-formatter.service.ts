@@ -150,11 +150,11 @@ export class AdministrativeDocumentFormatterService {
             extractedNum = `${standaloneNum}${extractedNum}`;
           }
         }
-        docNumber = `Số: ${extractedNum}`;
+        docNumber = `Số: ${extractedNum.replace(/\s*\/\s*/g, '/')}`;
       } else if (/^Số\s*:\s*$/i.test(line) && i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
         if (/^[0-9a-zA-Z\/\-_.]+$/.test(nextLine) && !/^li$/i.test(nextLine)) {
-          docNumber = `Số: ${nextLine}`;
+          docNumber = `Số: ${nextLine.replace(/\s*\/\s*/g, '/')}`;
         }
       }
 
@@ -189,41 +189,41 @@ export class AdministrativeDocumentFormatterService {
         // Trích yếu nội dung: dòng ngay sau hoặc ghép các dòng viết hoa/dấu hai chấm
         if (i + 1 < lines.length) {
           const nextLine = lines[i + 1];
-          if (
-            !/^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(nextLine) &&
-            !/^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(nextLine) &&
-            !/^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(nextLine) &&
-            !/^\(/.test(nextLine) &&
-            nextLine.length < 250
-          ) {
-            const isExplicitSubjectStart =
-              (nextLine === nextLine.toUpperCase() && nextLine.length > 5) ||
-              /^(?:Về việc|V\/v)(?:\s|[:\-,.]|$)/i.test(nextLine) ||
-              /^(?:Kết quả|Tình hình|Phương hướng|Kế hoạch|Nhiệm vụ|Sơ kết|Tổng kết|Đánh giá|Báo cáo|Về)(?:\s|[:\-,.]|$)/i.test(nextLine);
+          const isSectionOrBodyStart =
+            /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị|Theo|Tại|Căn cứ vào|Nhằm)(?:\s|[:\-,.]|$)/i.test(nextLine) ||
+            /^(?:[A-Z0-9IVX]+\.|\d+[\.\)]|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(nextLine) ||
+            /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(nextLine);
 
-            if (isExplicitSubjectStart) {
-              const subjectParts: string[] = [nextLine];
-              let curIdx = i + 2;
-              while (curIdx < Math.min(i + 6, lines.length)) {
-                const checkLine = lines[curIdx];
-                if (
-                  /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
-                  /^(?:[A-Z]\.|\bPHẦN\b|[I|V|X]+\.|\d+[\.\)]|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
-                  /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine) ||
-                  /^\(/.test(checkLine) ||
-                  checkLine.length > 250
-                ) {
-                  break;
-                }
-                subjectParts.push(checkLine);
-                curIdx++;
-                if (/[.:]\s*$/.test(checkLine)) {
-                  break;
-                }
+          const isFollowedBySection = i + 2 < lines.length && /^(?:[I|V|X]+\.|\d+[\.\)]|\bPHẦN\b)/i.test(lines[i + 2].trim());
+          const isTitleKeyword = /^(?:Cải cách|Công tác|Kết quả|Tình hình|Phương hướng|Kế hoạch|Nhiệm vụ|Sơ kết|Tổng kết|Đánh giá|Báo cáo|Về việc|V\/v|Về)(?:\s|[:\-,.]|$)/i.test(nextLine);
+          const isAllUpper = nextLine === nextLine.toUpperCase() && nextLine.length > 5;
+          const matchesMetaTitle = Boolean(metadata?.document_title && metadata.document_title.toLowerCase().includes(nextLine.toLowerCase().trim()));
+
+          const isExplicitSubjectStart = !isSectionOrBodyStart && (isFollowedBySection || isTitleKeyword || isAllUpper || matchesMetaTitle) && nextLine.length < 250;
+
+          if (isExplicitSubjectStart) {
+            const subjectParts: string[] = [nextLine];
+            let curIdx = i + 2;
+            while (curIdx < Math.min(i + 6, lines.length)) {
+              const checkLine = lines[curIdx];
+              const isNextSection =
+                /^(?:Kính gửi|Đơn vị trình|Thực hiện|Căn cứ|Nơi nhận|Theo đề nghị|Theo|Tại|Căn cứ vào|Nhằm)(?:\s|[:\-,.]|$)/i.test(checkLine) ||
+                /^(?:[A-Z0-9IVX]+\.|\bPHẦN\b|[-*•+]|[a-zđ]\))/i.test(checkLine) ||
+                /^(?:CỘNG HÒA|ỦY BAN|UBND|Số:)/i.test(checkLine) ||
+                /^\(/.test(checkLine) ||
+                checkLine.length > 250;
+
+              if (isNextSection) {
+                break;
               }
-              subject = subjectParts.join(' ').replace(/\s+/g, ' ').trim();
-              bodyStartIndex = curIdx;
+              subjectParts.push(checkLine);
+              curIdx++;
+              if (/[.:]\s*$/.test(checkLine)) {
+                break;
+              }
             }
+            subject = subjectParts.join(' ').replace(/\s+/g, ' ').trim();
+            bodyStartIndex = curIdx;
           }
         }
         break;

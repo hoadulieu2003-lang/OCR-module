@@ -106,7 +106,7 @@ def detect_watermark_patterns(doc) -> list:
 def is_valid_administrative_table(df_data, tab_bbox=None) -> bool:
     """
     Bộ lọc phân loại bảng biểu chuẩn:
-    Loại bỏ 100% các bảng giả lập (header 2 cột UBND/Quốc hiệu, tiêu đề BÁO CÁO, đề mục PHẦN THỨ, đoạn văn bị phân mảnh).
+    Loại bỏ 100% các bảng giả lập (header 2 cột UBND/Quốc hiệu, tiêu đề BÁO CÁO, đề mục PHẦN THỨ, đoạn văn thụt lề bị phân mảnh).
     Chỉ giữ lại các bảng số liệu / bảng biểu danh mục thực thụ.
     """
     if not df_data or len(df_data) < 2:
@@ -133,60 +133,102 @@ def is_valid_administrative_table(df_data, tab_bbox=None) -> bool:
         if any(kw in flat_first_row for kw in header_keywords) and rows_cnt <= 3:
             return False
     
-    # 2. Kiểm tra nếu là Tiêu đề hoặc Đầu mục văn bản bị chia cột
-    title_keywords = ['BÁO CÁO', 'PHIẾU TRÌNH', 'TỜ TRÌNH', 'KẾ HOẠCH', 'PHẦN THỨ', 'KÍNH GỬI', 'NƠI NHẬN']
+    # 2. Kiểm tra nếu là Tiêu đề hoặc Ký duyệt văn bản bị chia cột
+    title_keywords = ['BÁO CÁO', 'PHIẾU TRÌNH', 'TỜ TRÌNH', 'KẾ HOẠCH', 'PHẦN THỨ', 'KÍNH GỬI', 'NƠI NHẬN', 'TM. ỦY BAN', 'CHỦ TỊCH', 'PHÓ CHỦ TỊCH']
     if rows_cnt <= 2 and any(tk in flat_all_text for tk in title_keywords):
         return False
+    if any(tk in flat_first_row for tk in ['NƠI NHẬN', 'TM. ỦY BAN']):
+        return False
     
-    # 3. Kiểm tra độ phân mảnh ký tự (Từng từ bị tách thành từng cột)
-    non_empty_cells = []
-    numeric_cells_count = 0
+    # 3. Phân tích phân bố dữ liệu trên từng cột
+    col_filled = [0] * cols_cnt
+    col_chars = [0] * cols_cnt
+    numeric_cells = 0
+    total_non_empty = 0
+    bullet_cells = 0
     
     for row in df_data:
-        for cell in row:
-            if cell is not None and str(cell).strip():
-                c_str = str(cell).strip()
-                non_empty_cells.append(c_str)
-                # Số liệu định lượng đơn lẻ thực thụ (không phải năm 2024 trong câu văn)
-                if re.match(r'^[0-9]+([.,][0-9]+)?%?$', c_str) or c_str in ['-', '—', 'x', 'X']:
-                    numeric_cells_count += 1
+        for c in range(min(len(row), cols_cnt)):
+            val = str(row[c] or '').strip()
+            if val:
+                total_non_empty += 1
+                col_filled[c] += 1
+                col_chars[c] += len(val)
+                if re.match(r'^[0-9]+([.,][0-9]+)?%?$', val) or val in ['-', '—', 'x', 'X']:
+                    numeric_cells += 1
+                if re.match(r'^[-+*•]\s+', val):
+                    bullet_cells += 1
     
-    if len(non_empty_cells) < 4:
+    total_chars = sum(col_chars)
+    if total_chars < 15 or total_non_empty < 4:
         return False
     
-    # 4. Kiểm tra tỷ trọng bất cân xứng nội dung (Một cột chiếm hầu hết văn bản trong bảng ngắn <= 3 hàng)
-    if rows_cnt <= 3:
-        col_lengths = [sum(len(str(r[c] or '').strip()) for r in df_data if c < len(r)) for c in range(cols_cnt)]
-        total_len = sum(col_lengths)
-        if total_len > 0:
-            max_col_len = max(col_lengths)
-            # Nếu 1 cột chiếm > 75% tổng ký tự và các cột còn lại chỉ chứa dấu câu rác (., -, —, :) hoặc < 15 ký tự
-            if max_col_len / total_len > 0.75 and (total_len - max_col_len) <= 15:
-                return False
-            # Nếu hàng 0 ô 0 dài > 60 ký tự và bắt đầu bằng chữ thường hoặc dấu gạch đầu dòng (đoạn văn bị ngắt)
-            first_cell = str(df_data[0][0] or '').strip()
-            if len(first_cell) > 60 and (re.match(r'^[a-zà-ỹ\-–—]', first_cell) or ';' in first_cell):
-                return False
-    
-    avg_cell_len = sum(len(c) for c in non_empty_cells) / len(non_empty_cells)
-    
-    # Nếu bảng nhiều cột mà độ dài trung bình mỗi ô <= 3 ký tự (các từ bị cắt xén do giãn dòng)
-    if avg_cell_len <= 3 and cols_cnt >= 4 and rows_cnt <= 2:
+    # Nếu có từ 2 cột trở lên hoàn toàn rỗng hoặc >= 35% số cột bị rỗng hoàn toàn (cột ma do phân tích lề)
+    empty_cols = sum(1 for c in range(cols_cnt) if col_filled[c] == 0)
+    if empty_cols >= 2 or (empty_cols > 0 and empty_cols / cols_cnt >= 0.35):
+        return False
+        
+    # Nếu có từ 2 ô trở lên bắt đầu bằng ký tự gạch đầu dòng liệt kê (danh sách đoạn văn)
+    if bullet_cells >= 2:
+        return False
+        
+    # Nếu hàng đầu tiên chứa câu văn xuôi dài bắt đầu bằng giới từ hoặc cụm từ hành chính
+    if any(len(str(c or '').strip()) > 50 and re.match(r'^(Tính từ|Căn cứ|Thực hiện|Đánh giá|Theo|UBND|Tại|Sau khi)\b', str(c or '').strip(), re.I) for c in df_data[0]):
         return False
     
-    total_cells = rows_cnt * cols_cnt
-    density = len(non_empty_cells) / total_cells
-    
-    # Mật độ ô không được quá rỗng (< 25%)
-    if density < 0.25:
-        return False
-    
-    # Với bảng 2 hàng: Phải có ít nhất 2 ô chứa số liệu hoặc mật độ lấp đầy >= 50%
+    # Với bảng 2 hàng (Header + 1 hàng dữ liệu hoặc Hàng nối tiếp tràn trang):
     if rows_cnt == 2:
-        if numeric_cells_count < 2 and density < 0.5:
+        if numeric_cells < 2:
+            return False
+        first_cell = str(df_data[0][0] or '').strip()
+        second_cell = str(df_data[1][0] or '').strip()
+        if not first_cell and not re.match(r'^\d+\.?$', second_cell):
+            return False
+        if re.match(r'^([-+*•]|\d+\.|\([a-z0-9]+\)|[a-zà-ỹ]\))\s+', first_cell) or re.match(r'^[a-zà-ỹ]', first_cell):
             return False
     
+    # Functional columns: Cột có dữ liệu ở ít nhất min_fill hàng và có >= 5 ký tự hoặc là số
+    min_fill = 1 if rows_cnt <= 2 else max(2, int(rows_cnt * 0.25))
+    functional_cols = sum(1 for c in range(cols_cnt) if col_filled[c] >= min_fill and (col_chars[c] >= 5 or col_filled[c] >= 2))
+    
+    if functional_cols < 2:
+        return False
+    
+    # 4. Kiểm tra mức độ bất cân xứng (Một cột chiếm hầu hết nội dung)
+    max_col_char = max(col_chars)
+    ratio = max_col_char / total_chars
+    dominant_col = col_chars.index(max_col_char)
+    
+    if ratio > 0.75:
+        # Nếu 1 cột chiếm > 75% ký tự, các cột còn lại phải có dữ liệu bảng rõ rệt
+        other_cols_filled = [col_filled[c] for c in range(cols_cnt) if c != dominant_col]
+        other_cols_chars = total_chars - max_col_char
+        max_other_fill = max(other_cols_filled) if other_cols_filled else 0
+        
+        # Nếu không có cột nào khác đạt ít nhất 35% số hàng hoặc tổng ký tự các cột còn lại quá ít
+        if (max_other_fill / rows_cnt < 0.35 and numeric_cells < 2) or other_cols_chars < 20:
+            return False
+    
+    # 5. Kiểm tra dạng văn xuôi (Narrative prose check)
+    # Nếu hàng đầu tiên của cột dominant bắt đầu bằng gạch đầu dòng, dấu cộng hoặc số thứ tự đoạn văn
+    dom_first_cell = str(df_data[0][dominant_col] or '').strip()
+    if len(dom_first_cell) > 40 and re.match(r'^([-+*•]|\d+\.|\([a-z0-9]+\)|[a-zà-ỹ]\))\s+', dom_first_cell):
+        return False
+    if len(dom_first_cell) > 60 and re.match(r'^[a-zà-ỹ]', dom_first_cell):
+        return False
+    
+    # Mật độ ô không được quá rỗng (< 20%)
+    density = total_non_empty / (rows_cnt * cols_cnt)
+    if density < 0.20:
+        return False
+    
     return True
+
+def are_headers_similar(h1, h2) -> bool:
+    if not h1 or not h2 or len(h1) != len(h2):
+        return False
+    matches = sum(1 for a, b in zip(h1, h2) if a.strip().lower() == b.strip().lower() or (len(a) > 2 and a.strip().lower() in b.strip().lower()))
+    return matches >= max(1, int(len(h1) * 0.6))
 
 def find_table_context_title(page, tab_bbox, default_title: str) -> str:
     """
@@ -353,29 +395,36 @@ def parse_pdf_evidence(file_path: str) -> dict:
                 if len(b) >= 5 and b[4].strip():
                     b_text = b[4].strip()
                     if 'Số:' in b_text and re.search(r'/(?:[A-ZĐ0-9\-_]+)', b_text) and not re.search(r'Số:\s*\d+', b_text):
-                        so_w = [w for w in page_words if w[4] == 'Số:' and abs(w[1] - b[1]) < 20]
-                        slash_w = [w for w in page_words if '/' in w[4] and abs(w[1] - b[1]) < 20]
+                        so_w = [w for w in page_words if w[4] == 'Số:' and b[1] - 5 <= w[1] and w[3] <= b[3] + 5]
+                        slash_w = [w for w in page_words if '/' in w[4] and b[1] - 5 <= w[1] and w[3] <= b[3] + 5]
                         if so_w and slash_w:
-                            between = [w for w in page_words if so_w[0][2] - 2 <= w[0] and w[2] <= slash_w[0][0] + 2 and abs(w[1] - so_w[0][1]) < 6]
-                            if between:
-                                between.sort(key=lambda x: x[0])
-                                num_str = ' '.join([w[4] for w in between])
-                                b_text = b_text.replace('Số:', f'Số: {num_str}')
-                                b_text = re.sub(r'\s+/(?=[A-ZĐ0-9\-_])', ' /', b_text)
-                                for w in between:
-                                    consumed_overlay_words.add((w[0], w[1], w[4]))
+                            matching_slash = [sw for sw in slash_w if abs(sw[1] - so_w[0][1]) < 8 and sw[0] > so_w[0][2]]
+                            if matching_slash:
+                                sw = matching_slash[0]
+                                between = [w for w in page_words if so_w[0][2] - 2 <= w[0] and w[2] <= sw[0] + 2 and abs(w[1] - so_w[0][1]) < 8]
+                                if between:
+                                    between.sort(key=lambda x: x[0])
+                                    num_str = ' '.join([w[4] for w in between])
+                                    b_text = b_text.replace('Số:', f'Số: {num_str}')
+                                    b_text = re.sub(r'\s*/\s*(?=[A-ZĐ0-9\-_])', '/', b_text)
+                                    for w in between:
+                                        consumed_overlay_words.add((w[0], w[1], w[4]))
                     if 'ngày' in b_text and 'tháng' in b_text and not re.search(r'ngày\s*\d+', b_text):
-                        ngay_w = [w for w in page_words if w[4] == 'ngày' and abs(w[1] - b[1]) < 20]
-                        thang_w = [w for w in page_words if w[4] == 'tháng' and abs(w[1] - b[1]) < 20]
-                        if ngay_w and thang_w:
-                            between = [w for w in page_words if ngay_w[0][2] - 2 <= w[0] and w[2] <= thang_w[0][0] + 2 and abs(w[1] - ngay_w[0][1]) < 6]
-                            if between:
-                                between.sort(key=lambda x: x[0])
-                                day_str = ' '.join([w[4] for w in between])
-                                b_text = b_text.replace('ngày', f'ngày {day_str}')
-                                b_text = re.sub(r'\s+tháng', ' tháng', b_text)
-                                for w in between:
-                                    consumed_overlay_words.add((w[0], w[1], w[4]))
+                        ngay_w = [w for w in page_words if w[4] == 'ngày' and b[1] - 5 <= w[1] and w[3] <= b[3] + 5]
+                        thang_w = [w for w in page_words if w[4] == 'tháng' and b[1] - 5 <= w[1] and w[3] <= b[3] + 5]
+                        for nw in ngay_w:
+                            matching_tw = [tw for tw in thang_w if abs(tw[1] - nw[1]) < 8 and tw[0] > nw[2]]
+                            if matching_tw:
+                                tw = matching_tw[0]
+                                between = [w for w in page_words if nw[2] - 2 <= w[0] and w[2] <= tw[0] + 2 and abs(w[1] - nw[1]) < 8]
+                                if between:
+                                    between.sort(key=lambda x: x[0])
+                                    day_str = ' '.join([w[4] for w in between])
+                                    b_text = re.sub(r'ngày\s+tháng', f'ngày {day_str} tháng', b_text, count=1)
+                                    if f'ngày {day_str}' not in b_text:
+                                        b_text = b_text.replace('ngày', f'ngày {day_str}', 1)
+                                    for w in between:
+                                        consumed_overlay_words.add((w[0], w[1], w[4]))
 
                     blk_words = [w for w in page_words if b[0]-2 <= w[0] and w[2] <= b[2]+2 and b[1]-2 <= w[1] and w[3] <= b[3]+2]
                     if blk_words and all((w[0], w[1], w[4]) in consumed_overlay_words for w in blk_words):
@@ -424,11 +473,13 @@ def parse_pdf_evidence(file_path: str) -> dict:
 
             clean_page_text = "\n\n".join(clean_page_lines).strip()
 
-        # Quét trích xuất bảng biểu
+        # Quét trích xuất bảng biểu: Ưu tiên bảng có khung viền vector xác thực (lines_strict)
         page_raw_tables = []
         try:
             with contextlib.redirect_stdout(io.StringIO()):
-                tabs = page.find_tables()
+                tabs = page.find_tables(strategy="lines_strict")
+                if not tabs.tables:
+                    tabs = page.find_tables()
             for t_idx, tab in enumerate(tabs.tables):
                 df_data = tab.extract()
                 if is_valid_administrative_table(df_data, tab.bbox):
@@ -447,25 +498,44 @@ def parse_pdf_evidence(file_path: str) -> dict:
         # 3. ĐỘNG CƠ NỐI BẢNG ĐA TRANG (MULTI-PAGE TABLE STITCHING ENGINE)
         page_processed_tables = []
         for df_data, tab_bbox in page_raw_tables:
+            if not df_data:
+                continue
             first_row = [str(c).strip().replace('\n', ' ') if c is not None else '' for c in df_data[0]]
             first_cell = first_row[0] if first_row else ''
 
-            is_continuation = (
-                active_master_table is not None and
-                len(first_row) == active_master_table["col_count"] and
-                (first_cell.isdigit() or re.match(r'^\d+$', first_cell))
-            )
+            is_continuation = False
+            rows_to_process = []
+
+            if active_master_table is not None and len(first_row) == active_master_table["col_count"]:
+                # Trường hợp 1: Dòng đầu lặp lại header của bảng trang trước
+                if are_headers_similar(first_row, active_master_table["headers"]):
+                    is_continuation = True
+                    rows_to_process = df_data[1:]
+                # Trường hợp 2: Dòng đầu là dữ liệu tiếp diễn (STT, ký hiệu nhóm la mã, hoặc ô rỗng do ngắt trang)
+                elif first_cell == '' or first_cell.isdigit() or re.match(r'^(?:[IVXLCDM]+|\d+|[a-zđ]\))\b', first_cell, re.IGNORECASE):
+                    is_continuation = True
+                    rows_to_process = df_data[:]
 
             if is_continuation:
                 inherited_headers = active_master_table["headers"]
                 continuation_rows = []
-                for row in df_data:
+                for row in rows_to_process:
                     clean_row = [str(cell).strip().replace('\n', ' ') if cell is not None else '' for cell in row]
-                    if any(c for c in clean_row):
+                    if not any(clean_row):
+                        continue
+                    # Nếu ô đầu tiên rỗng và master table đã có dòng dữ liệu -> Ghép nối vào dòng cuối (tràn trang)
+                    if clean_row[0] == '' and active_master_table["rows"]:
+                        last_r = active_master_table["rows"][-1]
+                        for c_i in range(1, min(len(clean_row), len(last_r))):
+                            if clean_row[c_i]:
+                                sep = ' ' if c_i == 1 else '; '
+                                last_r[c_i] = (last_r[c_i] + sep + clean_row[c_i]).strip()
+                    else:
                         continuation_rows.append(clean_row)
                         active_master_table["rows"].append(clean_row)
 
-                active_master_table["page_refs"].append(page_display_num)
+                if page_display_num not in active_master_table["page_refs"]:
+                    active_master_table["page_refs"].append(page_display_num)
                 active_master_table["row_count"] = len(active_master_table["rows"])
 
                 page_tbl_obj = {
@@ -487,7 +557,7 @@ def parse_pdf_evidence(file_path: str) -> dict:
                 tbl_rows = []
                 for row in df_data[1:]:
                     clean_row = [str(cell).strip().replace('\n', ' ') if cell is not None else '' for cell in row]
-                    if any(c for c in clean_row):
+                    if any(clean_row):
                         tbl_rows.append(clean_row)
 
                 ctx_title = find_table_context_title(page, tab_bbox, f"Bảng số liệu #{len(master_stitched_tables) + 1} tại Trang {page_display_num}")

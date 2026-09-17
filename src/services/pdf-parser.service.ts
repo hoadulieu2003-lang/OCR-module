@@ -605,7 +605,7 @@ export class PdfParserService {
       const timeout = setTimeout(() => {
         PdfParserService.pendingRequests.delete(id);
         reject(new Error(`Daemon timeout processing: ${pdfPath}`));
-      }, 15000);
+      }, 45000);
 
       PdfParserService.pendingRequests.set(id, { resolve, reject, timeout });
       const payload = JSON.stringify({ id, file_path: pdfPath }) + '\n';

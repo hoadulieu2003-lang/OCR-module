@@ -916,6 +916,7 @@
       // --- CHẾ ĐỘ THỂ THỨC NGHỊ ĐỊNH 30/2020/NĐ-CP ---
       const meta = currentIRData?.metadata || {};
       const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const pageTables = (page.tables && page.tables.length > 0) ? page.tables : (currentTables || []).filter(t => (t.page_ref || 1) === page.pageNumber);
 
       let superiorAgency = null;
       let issuingAgency = meta.issuing_authority || 'ỦY BAN NHÂN DÂN';
@@ -1074,7 +1075,7 @@
       }
 
       // Bảng biểu thuộc trang này (Sử dụng bảng theo từng trang đã kế thừa header từ Multi-Page Table Engine)
-      const pageTables = (page.tables && page.tables.length > 0) ? page.tables : (currentTables || []).filter(t => (t.page_ref || 1) === page.pageNumber);
+      // pageTables đã được khởi tạo ở đầu hàm renderDocPage
       
       // Xây dựng tập hợp tất cả từ khóa/ô dữ liệu của bảng trên trang này để LOẠI TRỪ khỏi đoạn văn bản
       const tableCellTokens = new Set();

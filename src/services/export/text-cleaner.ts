@@ -73,7 +73,7 @@ export class AdministrativeDataProcessor {
   }
 
   public static formatVNNumber(val: string | number | null | undefined, unit?: string): string {
-    if (val === null || val === undefined || val === '') return '—';
+    if (val === null || val === undefined || val === '') return '';
     const s = String(val).trim();
     if (/^[0-9]+([.,][0-9]+)?$/.test(s)) {
       const num = parseFloat(s.replace(',', '.'));
@@ -113,66 +113,126 @@ export function calculateTableColumnWidths(headers: string[], rows: string[][], 
   const colCount = Math.max(headers.length, rows[0]?.length || 1);
   if (colCount <= 1) return [totalWidth];
 
-  const colLengths: number[] = new Array(colCount).fill(1);
-  headers.forEach((h, i) => {
-    colLengths[i] = Math.max(colLengths[i], String(h || '').length);
-  });
-  rows.slice(0, 30).forEach(r => {
-    r.forEach((c, i) => {
-      if (i < colCount) {
-        colLengths[i] = Math.max(colLengths[i], Math.min(String(c || '').length, 50));
-      }
-    });
-  });
+  const r0 = rows[0];
+  const r1 = rows[1];
+  const isR0SubHeader = Boolean(
+    rows.length >= 2 &&
+    r0 &&
+    (!r0[0]?.trim() || r0[0].trim() === '-' || r0[0].trim() === '—') &&
+    r1 &&
+    Boolean(r1[0]?.trim()) &&
+    r0.some(c => /^(đơn vị|đvt|số liệu|kế hoạch|thực hiện|tỷ lệ|kết quả|kinh phí|ngân sách|số lượng|ghi chú|tháng|năm|nam|nữ)/i.test(String(c || '').trim()) || (headers.some(h => !h.trim()) && Boolean(c?.trim()))) &&
+    r0.every(c => String(c || '').trim().length <= 40)
+  );
 
-  const isSttCol0 = /^(stt|#|số tt|tt)$/i.test((headers[0] || '').trim()) || colLengths[0] <= 4;
-  
-  // Tính minColWidth động theo số lượng cột để tổng minColWidth không bao giờ vượt quá 85% totalWidth
-  const maxAllowableMin = Math.floor((totalWidth * 0.85) / colCount);
-  const baseMin = totalWidth > 1000 ? 500 : 25;
-  const minColWidth = Math.max(totalWidth > 1000 ? 300 : 15, Math.min(baseMin, maxAllowableMin));
+  const effectiveRows = isR0SubHeader ? rows.slice(1) : rows;
+  const isDxa = totalWidth > 1000;
+  const scale = isDxa ? (totalWidth / 482) : 1;
+  const isLandscapeOrWide = isDxa ? (totalWidth > 11000) : (totalWidth > 600);
 
-  const sttWidth = isSttCol0 ? Math.min(totalWidth > 1000 ? 700 : 30, Math.floor(totalWidth / colCount)) : 0;
-  const remainingWidth = isSttCol0 ? totalWidth - sttWidth : totalWidth;
-  const remainingLengths = isSttCol0 ? colLengths.slice(1) : colLengths;
-  const totalRemainingLen = remainingLengths.reduce((a, b) => a + b, 0) || 1;
+  // Phân loại vai trò từng cột
+  const isSttCol0 = /^(stt|#|số tt|tt)$/i.test((headers[0] || '').trim()) || (rows.length > 0 && String(rows[0]?.[0] || '').length <= 4 && String(rows[1]?.[0] || '').length <= 4);
 
-  const result: number[] = [];
-  if (isSttCol0) {
-    result.push(sttWidth);
-  }
+  // Tính minColWidth cho từng cột dựa vào vai trò và nội dung hành chính
+  const minWidths = new Array(colCount).fill(0);
+  for (let c = 0; c < colCount; c++) {
+    if (c === 0 && isSttCol0) {
+      minWidths[c] = Math.round((isLandscapeOrWide ? 38 : 30) * scale);
+      continue;
+    }
+    const hText = String(headers[c] || '').trim();
+    const subText = isR0SubHeader ? String(r0[c] || '').trim() : '';
+    const combinedHeader = (hText + ' ' + subText).trim().toLowerCase();
 
-  remainingLengths.forEach((len) => {
-    const rawW = Math.round((len / totalRemainingLen) * remainingWidth);
-    result.push(Math.max(minColWidth, rawW));
-  });
+    const isUnit = /^(đơn vị|đvt|đơn vị tính)/i.test(combinedHeader) || /đơn vị|đvt/i.test(subText);
+    const isNum = /^(số liệu|kết quả|thực hiện|kế hoạch|tỷ lệ|ước thực hiện)/i.test(combinedHeader) || /^(số liệu|tỷ lệ)/i.test(subText);
+    const isNote = /^(ghi chú|note)/i.test(combinedHeader);
 
-  let currentSum = result.reduce((a, b) => a + b, 0);
-  if (currentSum !== totalWidth) {
-    if (currentSum > totalWidth) {
-      const scale = totalWidth / currentSum;
-      let scaledSum = 0;
-      for (let i = 0; i < result.length; i++) {
-        result[i] = Math.max(totalWidth > 1000 ? 250 : 10, Math.floor(result[i] * scale));
-        scaledSum += result[i];
-      }
-      let maxIdx = 0;
-      for (let i = 1; i < result.length; i++) {
-        if (result[i] > result[maxIdx]) maxIdx = i;
-      }
-      result[maxIdx] += (totalWidth - scaledSum);
+    if (isUnit) {
+      minWidths[c] = Math.round((isLandscapeOrWide ? 90 : 75) * scale);
+    } else if (isNum) {
+      minWidths[c] = Math.round((isLandscapeOrWide ? 68 : 55) * scale);
+    } else if (isNote) {
+      minWidths[c] = Math.round((isLandscapeOrWide ? 85 : 70) * scale);
     } else {
-      let maxIdx = isSttCol0 ? 1 : 0;
-      for (let i = maxIdx; i < result.length; i++) {
-        if (result[i] > result[maxIdx]) maxIdx = i;
-      }
-      result[maxIdx] += (totalWidth - currentSum);
+      minWidths[c] = Math.round((isLandscapeOrWide ? 75 : 55) * scale);
     }
   }
 
+  // Đảm bảo tổng minWidths không bao giờ vượt quá 92% totalWidth
+  const sumMin = minWidths.reduce((a, b) => a + b, 0);
+  if (sumMin > totalWidth * 0.92) {
+    const ratio = (totalWidth * 0.92) / sumMin;
+    for (let c = 0; c < colCount; c++) {
+      minWidths[c] = Math.max(isDxa ? 400 : 20, Math.floor(minWidths[c] * ratio));
+    }
+  }
+
+  // Tính độ dài hiệu dụng của từng cột
+  const colLengths = new Array(colCount).fill(1);
+  for (let c = 0; c < colCount; c++) {
+    const hText = String(headers[c] || '').trim();
+    const subText = isR0SubHeader ? String(r0[c] || '').trim() : '';
+    const hLen = Math.max(hText.length, subText.length);
+    const cellLens = effectiveRows.slice(0, 30).map(r => String(r[c] || '').trim().length).filter(l => l > 0);
+    const avgLen = cellLens.length > 0 ? (cellLens.reduce((a, b) => a + b, 0) / cellLens.length) : 0;
+    const maxLen = cellLens.length > 0 ? Math.max(...cellLens) : 0;
+    const rep = Math.min(Math.round(avgLen * 0.5 + maxLen * 0.5), 150);
+    colLengths[c] = Math.max(hLen, rep, 4);
+  }
+
+  const sttWidth = isSttCol0 ? minWidths[0] : 0;
+  const startIndex = isSttCol0 ? 1 : 0;
+  const remWidth = isSttCol0 ? (totalWidth - sttWidth) : totalWidth;
+
+  // Sử dụng hàm mũ 0.65 để giảm thiểu độ chênh lệch cực đoan giữa cột dài và ngắn
+  const weights: number[] = [];
+  for (let c = startIndex; c < colCount; c++) {
+    weights.push(Math.pow(colLengths[c], 0.65));
+  }
+  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+
+  // Cấp phát ban đầu
+  const result = new Array(colCount).fill(0);
+  if (isSttCol0) result[0] = sttWidth;
+
+  for (let i = 0; i < weights.length; i++) {
+    const c = startIndex + i;
+    const rawW = Math.round((weights[i] / totalWeight) * remWidth);
+    result[c] = Math.max(minWidths[c], rawW);
+  }
+
+  // Khống chế cột chiếm ưu thế lớn nhất không quá 48% remainingWidth nếu colCount >= 4
+  if (colCount >= 4) {
+    let maxIdx = startIndex;
+    for (let c = startIndex; c < colCount; c++) {
+      if (result[c] > result[maxIdx]) maxIdx = c;
+    }
+    const maxAllowed = Math.round(remWidth * 0.48);
+    if (result[maxIdx] > maxAllowed) {
+      const excess = result[maxIdx] - maxAllowed;
+      result[maxIdx] = maxAllowed;
+      const otherCols: number[] = [];
+      for (let c = startIndex; c < colCount; c++) {
+        if (c !== maxIdx) otherCols.push(c);
+      }
+      const addPerCol = Math.floor(excess / otherCols.length);
+      otherCols.forEach(c => result[c] += addPerCol);
+    }
+  }
+
+  // Điều chỉnh tổng chính xác bằng totalWidth
+  let curSum = result.reduce((a, b) => a + b, 0);
+  let diff = totalWidth - curSum;
+  let adjustIdx = startIndex;
+  for (let c = startIndex; c < colCount; c++) {
+    if (result[c] > result[adjustIdx]) adjustIdx = c;
+  }
+  result[adjustIdx] += diff;
+
   for (let i = 0; i < result.length; i++) {
     if (result[i] <= 0 || isNaN(result[i])) {
-      result[i] = Math.max(100, Math.floor(totalWidth / colCount));
+      result[i] = Math.max(isDxa ? 500 : 25, Math.floor(totalWidth / colCount));
     }
   }
 

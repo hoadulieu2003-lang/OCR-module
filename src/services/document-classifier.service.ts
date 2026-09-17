@@ -1,11 +1,12 @@
 import { ParsedDocument } from './pdf-parser.service.js';
 
 export interface ClassificationResult {
-  documentType: 'BAO_CAO' | 'PHIEU_TRINH' | 'TO_TRINH' | 'QUYET_DINH' | 'THONG_BAO_KET_LUAN' | 'BIEN_BAN' | 'CONG_VAN' | 'KHAC';
+  documentType: 'BAO_CAO' | 'PHIEU_TRINH' | 'TO_TRINH' | 'QUYET_DINH' | 'THONG_BAO_KET_LUAN' | 'BIEN_BAN' | 'CONG_VAN' | 'PHU_LUC' | 'KHAC';
   primaryDomain: string;
   domainTags: string[];
   isPeriodic: boolean;
   hasAppendix: boolean;
+  isPureTable?: boolean;
   urgencyLevel: 'HOA_TOC' | 'KHAN' | 'THUONG';
 }
 
@@ -19,19 +20,32 @@ export class DocumentClassifierService {
     const lowerText = fullText.toLowerCase();
     const lowerP1 = p1.toLowerCase();
 
-    // 1. Xác định Loại hình văn bản
+    // 1. Xác định Loại hình văn bản dựa trên Tiêu đề chính thức (Nghị định 30/2020/NĐ-CP)
     let docType: ClassificationResult['documentType'] = 'BAO_CAO';
-    if (lowerP1.includes('phiếu trình') || lowerP1.includes('phiếu giải quyết')) {
+    const isAppendix = /^\s*phụ\s+lục\b/i.test(p1) || (/(?:^|\n)\s*phụ\s+lục\b/i.test(p1.substring(0, 300)) && !lowerP1.includes('cộng hòa xã hội'));
+    const isPhieuTrinh = /(?:^|\n)\s*(?:PHIẾU\s+TRÌNH|PHIẾU\s+GIẢI\s+QUYẾT)\b/i.test(p1);
+    const isToTrinh = /(?:^|\n)\s*TỜ\s+TRÌNH\b/i.test(p1) && !isAppendix;
+    const isBaoCao = /(?:^|\n)\s*BÁO\s+CÁO\b/i.test(p1);
+    const isQuyetDinh = /(?:^|\n)\s*QUYẾT\s+ĐỊNH\b/i.test(p1) && !isBaoCao;
+    const isThongBao = /(?:^|\n)\s*(?:THÔNG\s+BÁO\s+KẾT\s+LUẬN|THÔNG\s+BÁO)\b/i.test(p1);
+    const isBienBan = /(?:^|\n)\s*BIÊN\s+BẢN\b/i.test(p1);
+    const isCongVan = /(?:^|\n)\s*CÔNG\s+VĂN\b/i.test(p1) || (lowerP1.includes('kính gửi') && (lowerP1.includes('v/v') || lowerP1.includes('về việc')) && !isBaoCao);
+
+    if (isAppendix) {
+      docType = 'PHU_LUC';
+    } else if (isPhieuTrinh) {
       docType = 'PHIEU_TRINH';
-    } else if (lowerP1.includes('tờ trình')) {
+    } else if (isToTrinh) {
       docType = 'TO_TRINH';
-    } else if (lowerP1.includes('quyết định')) {
+    } else if (isBaoCao) {
+      docType = 'BAO_CAO';
+    } else if (isQuyetDinh) {
       docType = 'QUYET_DINH';
-    } else if (lowerP1.includes('thông báo kết luận') || lowerP1.includes('kết luận cuộc họp')) {
+    } else if (isThongBao) {
       docType = 'THONG_BAO_KET_LUAN';
-    } else if (lowerP1.includes('biên bản')) {
+    } else if (isBienBan) {
       docType = 'BIEN_BAN';
-    } else if (lowerP1.includes('công văn') || (lowerP1.includes('kính gửi') && (lowerP1.includes('v/v') || lowerP1.includes('về việc')) && !lowerP1.includes('báo cáo'))) {
+    } else if (isCongVan) {
       docType = 'CONG_VAN';
     }
 
@@ -106,12 +120,18 @@ export class DocumentClassifierService {
       urgency = 'KHAN';
     }
 
+    // 6. Nhận diện văn bản thuần bảng biểu
+    const totalPages = doc.pages.length;
+    const pagesWithTables = doc.pages.filter(p => p.tables && p.tables.length > 0).length;
+    const isPureTable = docType === 'PHU_LUC' || (totalPages > 0 && pagesWithTables >= totalPages * 0.8 && doc.tables.length > 0);
+
     return {
       documentType: docType,
       primaryDomain,
       domainTags: Array.from(tags),
       isPeriodic,
       hasAppendix,
+      isPureTable,
       urgencyLevel: urgency
     };
   }

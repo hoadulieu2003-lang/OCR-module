@@ -20,7 +20,7 @@ export class ReportExtractorService {
     const indicators: IndicatorMetric[] = (ir.level2_details?.metrics || []).map(m => ({
       indicator_name: m.indicator,
       target_value: m.plan_target || undefined,
-      actual_value: m.actual || '—',
+      actual_value: m.actual || '',
       previous_period_value: m.previous_period || undefined,
       unit: m.unit || undefined,
       trend: m.trend || 'ON_DINH',
